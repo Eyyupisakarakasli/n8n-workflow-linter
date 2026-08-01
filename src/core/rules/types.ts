@@ -34,6 +34,9 @@ export interface RiskFinding {
   whyItMatters: string
   suggestedFix: string
   confidence: Confidence
+  affectedNodeCount?: number
+  groupedRuleIds?: string[]
+  groupKind?: 'http-hardening' | 'credential-leak'
 }
 
 export interface RuleDefinition {
@@ -61,4 +64,7 @@ export interface FindingInput {
   plainMeaning?: string
   fixSteps?: string[]
   shareSafetyImpact?: ShareSafetyImpact
+  affectedNodeCount?: number
+  groupedRuleIds?: string[]
+  groupKind?: RiskFinding['groupKind']
 }

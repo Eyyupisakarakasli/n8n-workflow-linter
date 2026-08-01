@@ -13,11 +13,12 @@ export function getReportVerdict(result: ScanResult): ReportVerdict {
   const blockingFindings = result.findings.filter(
     (finding) => finding.severity === 'critical' || finding.severity === 'high',
   )
+  const blockingAffectedNodes = affectedNodeCount(blockingFindings)
 
   if (blockingFindings.length > 0) {
     return {
       label: 'Fix before production use',
-      detail: `${blockingFindings.length} critical/high ${pluralize(blockingFindings.length, 'finding')} ${blockingFindings.length === 1 ? 'needs' : 'need'} attention before production use.`,
+      detail: `${blockingFindings.length} critical/high ${pluralize(blockingFindings.length, 'finding')} ${blockingFindings.length === 1 ? 'affects' : 'affect'} ${blockingAffectedNodes} ${pluralize(blockingAffectedNodes, 'node')} before production use.`,
       tone: 'danger',
     }
   }
@@ -62,6 +63,11 @@ export function buildMarkdownReport(result: ScanResult): string {
     `- HTTP nodes: ${result.summary.httpNodes}`,
     `- CRM write nodes: ${result.summary.crmWriteNodes}`,
     `- Disconnected active nodes: ${result.summary.disconnectedNodes}`,
+    `- Affected nodes: ${result.summary.affectedNodes}`,
+    `- HTTP nodes missing timeout: ${result.summary.httpNodesMissingTimeout}`,
+    `- HTTP nodes missing retry: ${result.summary.httpNodesMissingRetry}`,
+    `- HTTP nodes with error-handling risk: ${result.summary.httpNodesMissingErrorHandling}`,
+    `- Unique credential ID leaks: ${result.summary.uniqueCredentialLeaks}`,
     `- Parser warnings: ${result.summary.parserWarnings}`,
     `- Findings: ${result.findings.length}`,
   ]
@@ -94,6 +100,7 @@ function findingGroupLines(findings: RiskFinding[], severity: Severity): string[
       `#### ${index + 1}. ${finding.plainTitle}`,
       '',
       `- Rule: ${finding.ruleId}`,
+      `- Affected nodes: ${finding.affectedNodeCount ?? finding.nodeIds.length}`,
       `- Node: ${finding.nodeNames.join(', ') || 'Workflow level'}`,
       `- Category: ${finding.category}`,
       `- Confidence: ${finding.confidence}`,
@@ -118,9 +125,16 @@ function buildChecklistLines(result: ScanResult): string[] {
     '',
     ...result.findings.map((finding) => {
       const nodeLabel = finding.nodeNames.join(', ') || 'Workflow level'
+      if (finding.groupKind === 'http-hardening' || finding.groupKind === 'credential-leak') {
+        return `- [ ] ${finding.plainTitle}: ${finding.fixSteps[0] ?? finding.suggestedFix}`
+      }
       return `- [ ] ${nodeLabel}: ${finding.fixSteps[0] ?? finding.suggestedFix}`
     }),
   ]
+}
+
+function affectedNodeCount(findings: RiskFinding[]): number {
+  return new Set(findings.flatMap((finding) => finding.nodeIds)).size
 }
 
 function titleCase(value: string): string {

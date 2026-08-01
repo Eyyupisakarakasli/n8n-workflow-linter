@@ -126,6 +126,26 @@ function buildDeepHttpPostWorkflow({ includeValidation, mappingCount }: { includ
   })
 }
 
+function buildHttpHeavyWorkflow(count: number, method = 'GET') {
+  const nodes = Array.from({ length: count }, (_, index) => ({
+    id: `http-${index + 1}`,
+    name: `Fetch Market Data ${index + 1}`,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: 4,
+    position: [index * 140, 0],
+    parameters: {
+      method,
+      url: `https://api.example.com/market/${index + 1}`,
+    },
+  }))
+
+  return JSON.stringify({
+    name: `${method} HTTP hardening stress`,
+    nodes,
+    connections: {},
+  })
+}
+
 describe('scanWorkflowInput', () => {
   it('rejects malformed JSON with a user-facing error', () => {
     expect(() => scanWorkflowInput('{not-json')).toThrow(ScannerInputError)
@@ -191,6 +211,44 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(result, 'disabled-node')).toHaveLength(1)
     expect(findingsFor(result, 'disabled-node')[0].nodeNames).toHaveLength(2)
     expect(ids(result).has('disconnected-critical-node')).toBe(false)
+  })
+
+  it('counts disabled sticky notes as skipped non-operational nodes, not disabled findings', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Disabled sticky note',
+        nodes: [
+          {
+            id: 'sticky',
+            name: 'Sticky Note',
+            type: 'n8n-nodes-base.stickyNote',
+            disabled: true,
+            parameters: {
+              content: 'Draft note',
+            },
+          },
+          {
+            id: 'disabled-http',
+            name: 'Disabled HTTP Draft',
+            type: 'n8n-nodes-base.httpRequest',
+            disabled: true,
+            parameters: {
+              method: 'POST',
+              url: 'https://api.example.com/orders',
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'disabled sticky',
+    )
+
+    expect(result.summary.totalNodes).toBe(2)
+    expect(result.summary.activeNodes).toBe(0)
+    expect(result.summary.disabledNodes).toBe(1)
+    expect(result.summary.skippedNodes).toBe(1)
+    expect(findingsFor(result, 'disabled-node')).toHaveLength(1)
+    expect(findingsFor(result, 'disabled-node')[0].nodeNames).toEqual(['Disabled HTTP Draft'])
   })
 
   it('keeps the clean corpus free of critical/high findings within the non-info noise budget', () => {
@@ -548,8 +606,33 @@ describe('scanWorkflowInput', () => {
     )
 
     expect(ids(result).has('duplicate-write-path')).toBe(false)
-    expect(findingsFor(result, 'http-missing-retry')).toHaveLength(2)
+    expect(findingsFor(result, 'http-missing-retry')).toHaveLength(1)
+    expect(findingsFor(result, 'http-missing-retry')[0].nodeNames).toHaveLength(2)
     expect(findingsFor(result, 'http-silent-error-continue')).toHaveLength(2)
+  })
+
+  it('rolls repeated HTTP hardening findings up by rule while preserving affected nodes', () => {
+    const result = scanWorkflowInput(buildHttpHeavyWorkflow(25), 'http heavy')
+
+    expect(findingsFor(result, 'http-missing-error-branch')).toHaveLength(1)
+    expect(findingsFor(result, 'http-missing-retry')).toHaveLength(1)
+    expect(findingsFor(result, 'http-missing-timeout')).toHaveLength(1)
+    expect(findingsFor(result, 'http-missing-error-branch')[0].severity).toBe('medium')
+    expect(findingsFor(result, 'http-missing-error-branch')[0].nodeNames).toHaveLength(25)
+    expect(findingsFor(result, 'http-missing-retry')[0].nodeNames).toHaveLength(25)
+    expect(findingsFor(result, 'http-missing-timeout')[0].nodeNames).toHaveLength(25)
+    expect(result.summary.httpNodesMissingErrorHandling).toBe(25)
+    expect(result.summary.httpNodesMissingRetry).toBe(25)
+    expect(result.summary.httpNodesMissingTimeout).toBe(25)
+    expect(highOrCriticalCount(result)).toBe(0)
+  })
+
+  it('keeps missing HTTP error branches high for write methods and medium for read methods', () => {
+    const readResult = scanWorkflowInput(buildHttpHeavyWorkflow(1, 'GET'), 'http get')
+    const writeResult = scanWorkflowInput(buildHttpHeavyWorkflow(1, 'POST'), 'http post')
+
+    expect(findingsFor(readResult, 'http-missing-error-branch')[0].severity).toBe('medium')
+    expect(findingsFor(writeResult, 'http-missing-error-branch')[0].severity).toBe('high')
   })
 
   it('still flags duplicate persistent HTTP record writes in the same branch', () => {
@@ -635,6 +718,80 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(defaults, 'default-node-names')).toHaveLength(1)
   })
 
+  it('groups repeated real credential IDs by credential type and id', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Repeated credential IDs',
+        nodes: [
+          {
+            id: 'slack-1',
+            name: 'Send Slack 1',
+            type: 'n8n-nodes-base.slack',
+            parameters: {
+              operation: 'post',
+            },
+            credentials: {
+              slackOAuth2Api: {
+                id: 'slack_credential_real_id',
+                name: 'Slack workspace',
+              },
+            },
+          },
+          {
+            id: 'slack-2',
+            name: 'Send Slack 2',
+            type: 'n8n-nodes-base.slack',
+            parameters: {
+              operation: 'post',
+            },
+            credentials: {
+              slackOAuth2Api: {
+                id: 'slack_credential_real_id',
+                name: 'Slack workspace',
+              },
+            },
+          },
+          {
+            id: 'slack-3',
+            name: 'Send Slack 3',
+            type: 'n8n-nodes-base.slack',
+            parameters: {
+              operation: 'post',
+            },
+            credentials: {
+              slackOAuth2Api: {
+                id: 'slack_credential_real_id',
+                name: 'Slack workspace',
+              },
+            },
+          },
+          {
+            id: 'sheets',
+            name: 'Append Sheet',
+            type: 'n8n-nodes-base.googleSheets',
+            parameters: {
+              operation: 'append',
+            },
+            credentials: {
+              googleSheetsOAuth2Api: {
+                id: 'sheets_credential_real_id',
+                name: 'Google Sheets',
+              },
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'repeated credentials',
+    )
+
+    const credentialFindings = findingsFor(result, 'real-credential-id')
+
+    expect(credentialFindings).toHaveLength(2)
+    expect(credentialFindings.find((finding) => finding.nodeNames.includes('Send Slack 1'))?.nodeNames).toHaveLength(3)
+    expect(result.summary.uniqueCredentialLeaks).toBe(2)
+  })
+
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {
     const demoSourcePath = fileURLToPath(new URL('../src/data/demoWorkflows.ts', import.meta.url))
     const demoSource = readFileSync(demoSourcePath, 'utf8')
@@ -679,8 +836,9 @@ describe('scanWorkflowInput', () => {
     const checklist = buildFixChecklist(result)
 
     expect(markdown).toContain('Verdict: Fix before production use')
-    expect(markdown).toContain('critical/high findings need attention')
-    expect(singleBlockingMarkdown).toContain('1 critical/high finding needs attention')
+    expect(markdown).toContain('critical/high findings affect')
+    expect(singleBlockingMarkdown).toContain('1 critical/high finding affects')
+    expect(markdown).toContain('Affected nodes')
     expect(markdown).toContain('Fix steps')
     expect(checklist).toContain('- [ ]')
   })

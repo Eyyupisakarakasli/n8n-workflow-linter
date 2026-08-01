@@ -55,6 +55,8 @@
 .verdict-band,
 .warning-details summary,
 .report-actions button,
+.feedback-cta,
+.feedback-cta a,
 .primary-action,
 .filters,
 .finding-topline,
@@ -325,7 +327,7 @@ textarea:focus {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
 }
 
@@ -368,6 +370,43 @@ textarea:focus {
 }
 
 .report-actions button:hover {
+  border-color: var(--accent);
+}
+
+.feedback-cta {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.feedback-cta strong {
+  color: var(--text-strong);
+}
+
+.feedback-cta p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.feedback-cta a {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.feedback-cta a:hover {
   border-color: var(--accent);
 }
 
@@ -649,6 +688,11 @@ dd li + li {
 
   .filters select {
     width: 100%;
+  }
+
+  .feedback-cta {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .info-toggle {

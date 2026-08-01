@@ -6,7 +6,7 @@ Live beta: https://n8n-workflow-linter.vercel.app
 
 I built a small browser-based linter for exported n8n workflows.
 
-It scans workflow JSON locally and flags production risks like public webhooks without auth, write paths without validation, HubSpot create steps without dedupe, weak HTTP retry/error handling, pinned data, and embedded secrets.
+It scans workflow JSON locally and checks whether a workflow is safe to share or ready for a production review. It flags issues like public webhooks without auth, write paths without validation, weak HTTP retry/error handling, pinned data, embedded secrets, and real n8n credential IDs.
 
 No login. No n8n API connection. No workflow upload to a server.
 
@@ -20,7 +20,7 @@ I am testing a public beta for an n8n Workflow Linter:
 
 https://n8n-workflow-linter.vercel.app
 
-It reads exported workflow JSON in the browser and gives a reliability/security report before a workflow is shared or used in production.
+It reads exported workflow JSON in the browser and gives a security/reliability report before a workflow is shared or used in production.
 
 Current checks include:
 
@@ -28,7 +28,7 @@ Current checks include:
 - direct webhook-to-write paths
 - HubSpot create without dedupe/search/upsert
 - duplicate CRM/database/API write paths
-- HTTP timeout, retry, error branch, and pagination signals
+- grouped HTTP timeout, retry, error branch, and pagination signals
 - pinned data, hardcoded secrets, credential-shaped values, and real credential IDs
 - disabled nodes and default node names
 
@@ -38,11 +38,11 @@ I am looking for feedback on false positives, missed risks, confusing findings, 
 
 ## Direct message
 
-I shipped a small public beta that checks exported n8n workflow JSON for production risks before sharing or deploying it:
+I shipped a small public beta that checks exported n8n workflow JSON before sharing it or using it in production:
 
 https://n8n-workflow-linter.vercel.app
 
-It runs locally in the browser, no login or n8n connection. If you have 5 minutes, scan one workflow and tell me whether the report looks accurate or noisy.
+It runs locally in the browser, no login or n8n connection. If you have 5 minutes, scan one workflow and tell me whether the report looks accurate, useful, or noisy.
 
 Please do not send raw workflow JSON unless it is fully sanitized. The exported markdown report is enough.
 
@@ -51,6 +51,7 @@ Please do not send raw workflow JSON unless it is fully sanitized. The exported 
 When you send feedback, the most useful format is:
 
 - Verdict shown
+- Exported markdown report, if safe to share
 - Finding IDs that looked wrong
 - Expected result
 - Actual result

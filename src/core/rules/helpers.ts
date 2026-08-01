@@ -168,6 +168,9 @@ export function makeFinding(input: FindingInput): RiskFinding {
     whyItMatters: input.whyItMatters,
     suggestedFix: input.suggestedFix ?? input.fixSteps?.[0] ?? input.rule.fixSteps[0] ?? '',
     confidence: input.confidence ?? 'medium',
+    affectedNodeCount: input.affectedNodeCount,
+    groupedRuleIds: input.groupedRuleIds,
+    groupKind: input.groupKind,
   }
 }
 

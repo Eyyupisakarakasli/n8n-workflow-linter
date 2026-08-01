@@ -8,6 +8,7 @@ import {
   FileText,
   Filter,
   Loader2,
+  Mail,
   Play,
   ShieldCheck,
   Upload,
@@ -23,6 +24,7 @@ import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.wor
 
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
+const feedbackEmail = 'eyyupisa16@gmail.com'
 
 type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
 type CopyState = 'idle' | 'copied' | 'failed'
@@ -257,8 +259,8 @@ function App() {
         <div>
           <p className="eyebrow">Local n8n reliability scanner</p>
           <h1>n8n Workflow Linter</h1>
-          <p className="header-promise">Find risky nodes in your n8n workflow before they break production.</p>
-          <p className="header-subline">Upload your workflow JSON and get a local reliability report.</p>
+          <p className="header-promise">Check whether an exported n8n workflow is safe to share or use in production.</p>
+          <p className="header-subline">Upload your workflow JSON and get a local security and reliability report.</p>
         </div>
         <div className="privacy-badge">
           <ShieldCheck size={18} aria-hidden="true" />
@@ -429,6 +431,11 @@ function ReportView({
   const highCount = result.findings.filter(
     (finding) => finding.severity === 'critical' || finding.severity === 'high',
   ).length
+  const highAffectedNodeCount = new Set(
+    result.findings
+      .filter((finding) => finding.severity === 'critical' || finding.severity === 'high')
+      .flatMap((finding) => finding.nodeIds),
+  ).size
   const infoCount = result.findings.filter((finding) => finding.severity === 'info').length
   const hiddenInfoCount = severityFilter === 'all' && !showInfoFindings ? infoCount : 0
   const groupedFindings = severityOrder
@@ -451,7 +458,7 @@ function ReportView({
           ) : (
             <CheckCircle2 size={18} aria-hidden="true" />
           )}
-          <span>{highCount > 0 ? `${highCount} critical/high` : 'No critical/high findings'}</span>
+          <span>{highCount > 0 ? `${highCount} critical/high, ${highAffectedNodeCount} nodes` : 'No critical/high findings'}</span>
         </div>
       </div>
 
@@ -472,9 +479,14 @@ function ReportView({
         <SummaryMetric label="Active" value={result.summary.activeNodes} />
         <SummaryMetric label="Disabled" value={result.summary.disabledNodes} />
         <SummaryMetric label="Skipped" value={result.summary.skippedNodes} />
+        <SummaryMetric label="Affected" value={result.summary.affectedNodes} />
         <SummaryMetric label="Connections" value={result.summary.totalEdges} />
         <SummaryMetric label="Triggers" value={result.summary.triggerNodes} />
         <SummaryMetric label="HTTP" value={result.summary.httpNodes} />
+        <SummaryMetric label="No timeout" value={result.summary.httpNodesMissingTimeout} />
+        <SummaryMetric label="No retry" value={result.summary.httpNodesMissingRetry} />
+        <SummaryMetric label="Error risk" value={result.summary.httpNodesMissingErrorHandling} />
+        <SummaryMetric label="Credential IDs" value={result.summary.uniqueCredentialLeaks} />
         <SummaryMetric label="CRM writes" value={result.summary.crmWriteNodes} />
         <SummaryMetric label="Warnings" value={result.summary.parserWarnings} />
       </div>
@@ -493,6 +505,8 @@ function ReportView({
           <span>Download .md</span>
         </button>
       </div>
+
+      <FeedbackCta result={result} />
 
       <div className="filters">
         <Filter size={17} aria-hidden="true" />
@@ -562,9 +576,12 @@ function ReportView({
                   <div className="finding-topline">
                     <span className={`severity ${finding.severity}`}>{titleCase(finding.severity)}</span>
                     <span>{finding.category}</span>
+                    {finding.affectedNodeCount && finding.affectedNodeCount > 1 ? (
+                      <span>{finding.affectedNodeCount} affected nodes</span>
+                    ) : null}
                   </div>
                   <h4>{finding.plainTitle}</h4>
-                  <p className="node-line">{finding.nodeNames.join(', ') || 'Workflow level'}</p>
+                  <p className="node-line">{formatNodeLine(finding.nodeNames)}</p>
                   <p className="finding-meaning">{finding.plainMeaning}</p>
                   <dl>
                     <div>
@@ -592,6 +609,37 @@ function ReportView({
   )
 }
 
+function FeedbackCta({ result }: { result: ScanResult }) {
+  const subject = encodeURIComponent(`n8n Workflow Linter feedback: ${result.workflowName}`)
+  const body = encodeURIComponent(
+    [
+      'Please attach the exported markdown report from the app.',
+      '',
+      'Do not send raw workflow JSON unless it is fully sanitized.',
+      '',
+      'Feedback format:',
+      '- Verdict shown:',
+      '- Finding IDs that looked wrong:',
+      '- Expected result:',
+      '- Actual result:',
+      '- Safe redacted workflow shape:',
+    ].join('\n'),
+  )
+
+  return (
+    <div className="feedback-cta">
+      <div>
+        <strong>Send safe beta feedback</strong>
+        <p>Send the markdown report and a short note. Do not send raw workflow JSON.</p>
+      </div>
+      <a href={`mailto:${feedbackEmail}?subject=${subject}&body=${body}`}>
+        <Mail size={17} aria-hidden="true" />
+        <span>Email feedback</span>
+      </a>
+    </div>
+  )
+}
+
 function SummaryMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="summary-metric">
@@ -599,6 +647,13 @@ function SummaryMetric({ label, value }: { label: string; value: number }) {
       <strong>{value}</strong>
     </div>
   )
+}
+
+function formatNodeLine(nodeNames: string[]): string {
+  if (nodeNames.length === 0) return 'Workflow level'
+  const visibleNames = nodeNames.slice(0, 8)
+  const hiddenCount = nodeNames.length - visibleNames.length
+  return hiddenCount > 0 ? `${visibleNames.join(', ')} and ${hiddenCount} more` : visibleNames.join(', ')
 }
 
 function DocsBlock() {

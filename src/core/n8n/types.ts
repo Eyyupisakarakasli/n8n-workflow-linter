@@ -104,4 +104,9 @@ export interface WorkflowSummary {
   crmWriteNodes: number
   disconnectedNodes: number
   parserWarnings: number
+  affectedNodes: number
+  httpNodesMissingTimeout: number
+  httpNodesMissingRetry: number
+  httpNodesMissingErrorHandling: number
+  uniqueCredentialLeaks: number
 }

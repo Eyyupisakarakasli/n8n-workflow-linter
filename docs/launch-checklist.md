@@ -25,6 +25,7 @@ Live beta: https://n8n-workflow-linter.vercel.app
    - confusing copy
    - parser/export format problem
    - UI problem
+8. Record manual beta metrics in the founder results note; do not add analytics for this beta pass.
 
 ## Where to share first
 

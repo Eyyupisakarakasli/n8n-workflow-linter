@@ -1,4 +1,4 @@
-import { getWebhookAuthentication } from '../n8n/categories'
+import { getHttpMethod, getWebhookAuthentication } from '../n8n/categories'
 import { hasUpstreamNode } from '../n8n/graph'
 import type { N8nNode } from '../n8n/types'
 import {
@@ -29,6 +29,8 @@ import {
   writeTargetsThatCanRunTogether,
 } from './helpers'
 import type { RiskFinding, RuleContext, RuleDefinition } from './types'
+
+const httpWriteMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 const webhookValidationRule: RuleDefinition = {
   id: 'webhook-missing-validation',
@@ -230,16 +232,19 @@ const httpErrorBranchRule: RuleDefinition = {
   run(context) {
     return nodesInCategory(context, 'http')
       .filter((node) => !hasErrorHandling(context, node) && !hasSilentErrorContinue(node))
-      .map((node) =>
-        makeFinding({
+      .map((node) => {
+        const isWrite = httpWriteMethods.has(getHttpMethod(node))
+        return makeFinding({
           rule: httpErrorBranchRule,
           node,
+          severity: isWrite ? 'high' : 'medium',
           confidence: 'medium',
+          shareSafetyImpact: isWrite ? 'must-fix' : 'worth-fixing',
           problem: 'This HTTP Request node does not show an error branch or continue-on-fail handling.',
           whyItMatters:
             'An API outage or bad response can stop production workflows without notification or cleanup.',
-        }),
-      )
+        })
+      })
   },
 }
 
@@ -405,17 +410,32 @@ const realCredentialIdRule: RuleDefinition = {
   category: 'Security',
   defaultSeverity: 'critical',
   run(context) {
-    return context.originalWorkflow.nodes.flatMap((node) =>
-      credentialIdLeaks(node).map((leak) =>
-        makeFinding({
-          rule: realCredentialIdRule,
-          node,
-          confidence: 'high',
-          problem: `${leak.credentialType} credential uses a real instance ID (${leak.redacted}).`,
-          whyItMatters:
-            'Credential IDs do not transfer between n8n accounts and reveal details from the private instance that exported the file.',
-        }),
-      ),
+    const leaksByCredential = new Map<
+      string,
+      { credentialType: string; credentialId: string; redacted: string; nodes: N8nNode[] }
+    >()
+
+    for (const node of context.originalWorkflow.nodes) {
+      for (const leak of credentialIdLeaks(node)) {
+        const key = `${leak.credentialType}:${leak.credentialId}`
+        const existing = leaksByCredential.get(key) ?? { ...leak, nodes: [] }
+        existing.nodes.push(node)
+        leaksByCredential.set(key, existing)
+      }
+    }
+
+    return [...leaksByCredential.values()].map((leak) =>
+      makeFinding({
+        rule: realCredentialIdRule,
+        nodes: leak.nodes,
+        confidence: 'high',
+        problem: `${leak.credentialType} credential uses a real instance ID (${leak.redacted}) in ${leak.nodes.length} ${leak.nodes.length === 1 ? 'node' : 'nodes'}.`,
+        whyItMatters:
+          'Credential IDs do not transfer between n8n accounts and reveal details from the private instance that exported the file.',
+        affectedNodeCount: leak.nodes.length,
+        groupedRuleIds: [realCredentialIdRule.id],
+        groupKind: 'credential-leak',
+      }),
     )
   },
 }

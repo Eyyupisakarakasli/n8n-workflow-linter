@@ -1,8 +1,8 @@
 # n8n Workflow Linter
 
-Client-side public beta for scanning exported n8n workflow JSON files.
+Client-side public beta for checking whether exported n8n workflow JSON files are safe to share or ready for production review.
 
-Find risky nodes in your n8n workflow before they break production. Upload your workflow JSON and get a local reliability report.
+Upload your workflow JSON and get a local security and reliability report before sharing a template, asking for feedback, or putting a workflow into production.
 
 Live public beta: https://n8n-workflow-linter.vercel.app
 
@@ -13,6 +13,7 @@ Live public beta: https://n8n-workflow-linter.vercel.app
 3. Drop, choose, or paste the workflow JSON.
 4. Click `Scan workflow`.
 5. Review the verdict, grouped findings, fix steps, and downloadable markdown report.
+6. Send feedback from the app with the exported markdown report, not raw workflow JSON.
 
 ## Privacy
 
@@ -30,7 +31,7 @@ Do not send raw workflow JSON as feedback unless you have removed secrets, custo
 - n8n parser, graph helpers, and deterministic risk rules
 - Active scan excludes disabled nodes and non-operational nodes such as Sticky Note / NoOp
 - Security rules for known secret formats, credential-shaped values, credential IDs, URL query credentials, and pinned data
-- Reliability rules for webhook validation/auth, HubSpot create dedupe, HTTP timeout/retry/error handling, frequent schedules, duplicate write paths, and disconnected action nodes
+- Reliability rules for webhook validation/auth, HubSpot create dedupe, grouped HTTP timeout/retry/error handling, frequent schedules, duplicate write paths, and disconnected action nodes
 - Verdict, severity grouped report, parser warnings, markdown report export, and fix checklist copy
 
 Out of scope for the MVP: auth, payment, n8n API connection, team features, marketplace integration, server-side workflow storage, and auto-fix.
@@ -58,6 +59,7 @@ Out of scope for the MVP: auth, payment, n8n API connection, team features, mark
 
 - `tests/fixtures/clean-*.json` workflows should have zero critical/high findings.
 - Clean corpus non-info findings should stay at or below 0.05 findings per total node.
+- HTTP-heavy workflows should report grouped hardening issues instead of repeating the same fix card per node.
 - Risky reference workflows should catch webhook auth, webhook direct write, HubSpot create without dedupe, HTTP hardening gaps, credential leaks, and pinned data.
 - Workflow JSON stays in the browser. The app does not add analytics, server uploads, or storage.
 - `npm run test:privacy` builds production output and fails if unexpected network, storage, or analytics APIs appear in `dist/`.
@@ -76,7 +78,7 @@ Use `npm.cmd` instead of `npm` on Windows PowerShell if script execution policy 
 
 ## Beta feedback
 
-Use the feedback issue template in this repo if you have access. If you do not, send only the exported markdown report and a short note about what looked wrong. Avoid sharing raw workflow JSON.
+Use the in-app email feedback link, or the feedback issue template in this repo if you have access. Send only the exported markdown report and a short note about what looked wrong. Avoid sharing raw workflow JSON.
 
 Useful feedback includes:
 

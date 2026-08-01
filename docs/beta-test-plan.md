@@ -57,6 +57,15 @@ Public beta is healthy when:
 - Users can understand the first verdict without an explanation call.
 - Users can export markdown and send feedback without sharing raw JSON.
 
+Use manual feedback counts only. Do not add analytics for this beta pass.
+
+- How many people received the link
+- How many people said they scanned a workflow
+- How many markdown reports or notes came back
+- How many people said they would fix something because of the report
+- Which rule created the most value
+- Which rule created the most noise
+
 ## Stop or rollback signals
 
 Pause wider distribution if:
