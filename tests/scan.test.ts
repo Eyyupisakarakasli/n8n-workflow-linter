@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { categorizeNode } from '../src/core/n8n/categories'
 import { parseWorkflow } from '../src/core/n8n/parse'
-import { buildFixChecklist, buildMarkdownReport } from '../src/core/report/markdown'
+import { buildFixChecklist, buildMarkdownReport, getReportVerdict } from '../src/core/report/markdown'
 import { ScannerInputError, scanWorkflowInput, type ScanResult } from '../src/core/scan'
 import { demoWorkflows } from '../src/data/demoWorkflows'
 
@@ -262,7 +262,10 @@ describe('scanWorkflowInput', () => {
     expect(cleanFixtureNames.length).toBeGreaterThanOrEqual(6)
     expect(totalNodes).toBeGreaterThan(0)
     expect(totalHighCritical).toBe(0)
-    expect(totalNonInfo / totalNodes).toBeLessThanOrEqual(0.05)
+    // Recalibrated after finding rollup. Grouping cut the raw finding count, so the old
+    // 0.05 budget stopped constraining anything (measured ratio is 0). Keep it scaled to
+    // corpus size rather than a flat zero so a genuinely noisy new rule still trips it.
+    expect(totalNonInfo / totalNodes).toBeLessThanOrEqual(0.01)
     expect(totalFindings).toBeGreaterThan(totalNonInfo)
   })
 
@@ -617,14 +620,29 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(result, 'http-missing-error-branch')).toHaveLength(1)
     expect(findingsFor(result, 'http-missing-retry')).toHaveLength(1)
     expect(findingsFor(result, 'http-missing-timeout')).toHaveLength(1)
-    expect(findingsFor(result, 'http-missing-error-branch')[0].severity).toBe('medium')
     expect(findingsFor(result, 'http-missing-error-branch')[0].nodeNames).toHaveLength(25)
     expect(findingsFor(result, 'http-missing-retry')[0].nodeNames).toHaveLength(25)
     expect(findingsFor(result, 'http-missing-timeout')[0].nodeNames).toHaveLength(25)
     expect(result.summary.httpNodesMissingErrorHandling).toBe(25)
     expect(result.summary.httpNodesMissingRetry).toBe(25)
     expect(result.summary.httpNodesMissingTimeout).toBe(25)
-    expect(highOrCriticalCount(result)).toBe(0)
+    // Retry/timeout stay medium no matter the scale; only the missing error route escalates.
+    expect(findingsFor(result, 'http-missing-retry')[0].severity).toBe('medium')
+    expect(findingsFor(result, 'http-missing-timeout')[0].severity).toBe('medium')
+  })
+
+  it('escalates a read-only HTTP path to high when no node has an error route', () => {
+    // Per-node these are medium GET calls, but a whole ingestion path with no error
+    // route anywhere must not report "No production blockers found".
+    const systemic = scanWorkflowInput(buildHttpHeavyWorkflow(25), 'http heavy')
+    const small = scanWorkflowInput(buildHttpHeavyWorkflow(4), 'http small')
+
+    expect(findingsFor(systemic, 'http-missing-error-branch')[0].severity).toBe('high')
+    expect(highOrCriticalCount(systemic)).toBeGreaterThan(0)
+    expect(getReportVerdict(systemic).label).toBe('Fix before production use')
+
+    expect(findingsFor(small, 'http-missing-error-branch')[0].severity).toBe('medium')
+    expect(highOrCriticalCount(small)).toBe(0)
   })
 
   it('keeps missing HTTP error branches high for write methods and medium for read methods', () => {

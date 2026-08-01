@@ -189,16 +189,18 @@ function groupHttpFindings(findings: RiskFinding[]): RiskFinding {
   const nodeIds = unique(findings.flatMap((finding) => finding.nodeIds))
   const nodeNames = unique(findings.flatMap((finding) => finding.nodeNames))
   const count = nodeIds.length
-  const copy = httpRollupCopy(representative.ruleId, count)
+  const severity = escalateHttpGroupSeverity(representative.ruleId, representative.severity, count)
+  const copy = httpRollupCopy(representative.ruleId, count, severity !== representative.severity)
 
   return {
     ...representative,
     id: `${representative.ruleId}:group:${representative.severity}:${nodeIds.join(',')}`,
+    severity,
     title: copy.title,
     plainTitle: copy.plainTitle,
     plainMeaning: copy.plainMeaning,
     fixSteps: copy.fixSteps,
-    shareSafetyImpact: shareImpactForSeverity(representative.severity),
+    shareSafetyImpact: shareImpactForSeverity(severity),
     nodeIds,
     nodeNames,
     problem: copy.problem,
@@ -233,21 +235,34 @@ function affectedNodeCountForRules(findings: RiskFinding[], ruleIds: string[]): 
   return unique(findings.filter((finding) => wanted.has(finding.ruleId)).flatMap((finding) => finding.nodeIds)).length
 }
 
-function httpRollupCopy(ruleId: string, count: number) {
+// A single unguarded read call is a medium reliability note. A whole pipeline with no
+// error route anywhere is a production blocker: one failed fetch silently produces a
+// partial run, and nothing in the workflow reports it.
+const systemicHttpNodeThreshold = 5
+
+function escalateHttpGroupSeverity(ruleId: string, severity: Severity, count: number): Severity {
+  if (ruleId !== 'http-missing-error-branch') return severity
+  if (severity !== 'medium') return severity
+  return count >= systemicHttpNodeThreshold ? 'high' : severity
+}
+
+function httpRollupCopy(ruleId: string, count: number, escalated = false) {
   if (ruleId === 'http-missing-error-branch') {
     return {
       title: 'HTTP Request nodes have no error branch',
       plainTitle: `${count} HTTP ${pluralize(count, 'node')} have no error branch`,
-      plainMeaning:
-        'These HTTP Request nodes do not show an error output branch or equivalent recovery route. A failed API call can stop or distort the workflow without a clear alert path.',
+      plainMeaning: escalated
+        ? `None of these ${count} HTTP Request nodes have an error output branch. Each call is a read, so any single failure looks minor, but with no error route anywhere in the path a failed fetch produces a partial run that nothing reports.`
+        : 'These HTTP Request nodes do not show an error output branch or equivalent recovery route. A failed API call can stop or distort the workflow without a clear alert path.',
       fixSteps: [
         'Add an error output branch or shared alert/dead-letter route for each listed HTTP Request node.',
         'Prioritize write/action calls first; for read-only feeds, use one shared notification or logging branch.',
         'Re-run the scan after wiring the error paths.',
       ],
       problem: `${count} HTTP Request ${pluralize(count, 'node')} do not show an error branch or continue-on-fail handling.`,
-      whyItMatters:
-        'API outages and bad responses are common. A shared error path keeps scheduled ingestion and production actions observable when a call fails.',
+      whyItMatters: escalated
+        ? 'At this scale the gap is systemic, not incidental. A scheduled ingestion path with no error route anywhere can keep reporting success while returning incomplete data.'
+        : 'API outages and bad responses are common. A shared error path keeps scheduled ingestion and production actions observable when a call fails.',
     }
   }
 
