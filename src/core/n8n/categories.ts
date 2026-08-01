@@ -129,6 +129,10 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('write')
   }
 
+  if (suffix === 'hubspot' && !operation && legacyHubSpotNameLooksWrite(node.name)) {
+    categories.add('write')
+  }
+
   if (!categories.has('write') && resource && isWriteOperation(operation)) {
     categories.add('write')
   }
@@ -162,6 +166,10 @@ export function isWriteOperation(operation: string): boolean {
 export function isReadOperation(operation: string): boolean {
   const normalized = operation.toLowerCase().replace(/\s+/g, '')
   return readOperations.has(normalized)
+}
+
+export function legacyHubSpotNameLooksWrite(name: string): boolean {
+  return /\b(create|add|update|upsert|insert|delete)\b/i.test(name)
 }
 
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {

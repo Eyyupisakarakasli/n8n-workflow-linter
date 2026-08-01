@@ -359,17 +359,23 @@ export function looksLikeCreateContact(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase()
   const resource = getParameterString(node, 'resource').toLowerCase()
   const text = nodeSearchText(node)
+  const contactContext = resource.includes('contact') || text.includes('contact') || text.includes('contacts')
+  const explicitCreate = operation === 'create'
+  const legacyCreateName = !operation && nodeTypeIs(node, 'hubspot') && /\b(create|add)\b/i.test(node.name)
 
-  return (
-    text.includes('hubspot') &&
-    operation === 'create' &&
-    (resource.includes('contact') || text.includes('contact') || text.includes('contacts'))
-  )
+  return text.includes('hubspot') && contactContext && (explicitCreate || legacyCreateName)
 }
 
 export function looksLikeSearchUpdateOrUpsert(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase().replace(/\s+/g, '')
-  return ['search', 'lookup', 'find', 'getall', 'update', 'upsert'].includes(operation) || nodeTextIncludesAny(node, ['dedupe'])
+  if (['search', 'lookup', 'find', 'getall', 'update', 'upsert'].includes(operation)) return true
+  if (nodeTextIncludesAny(node, ['dedupe'])) return true
+
+  return (
+    !operation &&
+    nodeTypeIs(node, 'hubspot') &&
+    /\b(search|lookup|find|get all|update|upsert)\b/i.test(node.name)
+  )
 }
 
 export function hasKnownSecret(node: N8nNode): SecretMatch[] {

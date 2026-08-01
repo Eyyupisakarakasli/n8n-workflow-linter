@@ -333,6 +333,109 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('hubspot-create-without-dedupe')).toBe(true)
   })
 
+  it('detects legacy HubSpot contact create exports without an operation field', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Legacy Typeform to HubSpot create',
+        nodes: [
+          {
+            name: 'Typeform Trigger',
+            type: 'n8n-nodes-base.typeformTrigger',
+            parameters: {
+              formId: 'sample-form',
+            },
+          },
+          {
+            name: 'Set values',
+            type: 'n8n-nodes-base.set',
+            parameters: {
+              values: {
+                string: [
+                  {
+                    name: 'form_email',
+                    value: '={{ $json.email }}',
+                  },
+                ],
+              },
+            },
+          },
+          {
+            name: 'create new contact',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              email: '={{ $json.form_email }}',
+              additionalFields: {},
+            },
+            credentials: {
+              hubspotApi: 'hubspot_nodeqa',
+            },
+            typeVersion: 1,
+          },
+        ],
+        connections: {
+          'Typeform Trigger': {
+            main: [[{ node: 'Set values', type: 'main', index: 0 }]],
+          },
+          'Set values': {
+            main: [[{ node: 'create new contact', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'legacy hubspot create',
+    )
+
+    expect(result.summary.crmWriteNodes).toBe(1)
+    expect(ids(result).has('hubspot-create-without-dedupe')).toBe(true)
+  })
+
+  it('allows legacy HubSpot find nodes to satisfy upstream dedupe before create', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Legacy HubSpot find then create',
+        nodes: [
+          {
+            name: 'Receive Lead',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'lead',
+              authentication: 'headerAuth',
+            },
+          },
+          {
+            name: 'Find HubSpot Contact',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              email: '={{ $json.email }}',
+            },
+            typeVersion: 1,
+          },
+          {
+            name: 'create new contact',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              email: '={{ $json.email }}',
+            },
+            typeVersion: 1,
+          },
+        ],
+        connections: {
+          'Receive Lead': {
+            main: [[{ node: 'Find HubSpot Contact', type: 'main', index: 0 }]],
+          },
+          'Find HubSpot Contact': {
+            main: [[{ node: 'create new contact', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'legacy hubspot find',
+    )
+
+    expect(ids(result).has('hubspot-create-without-dedupe')).toBe(false)
+  })
+
   it('does not flag canonical HubSpot search to IF to update/create as duplicate writes or missing dedupe', () => {
     const result = scanWorkflowInput(fixture('clean-canonical-hubspot-dedupe.json'), 'canonical dedupe')
     const ruleIds = ids(result)
