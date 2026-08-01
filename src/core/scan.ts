@@ -1,7 +1,7 @@
-import { categorizeNode } from './n8n/categories'
+import { categorizeNode, isNonOperationalNode, type NodeCategory } from './n8n/categories'
 import { buildGraph, getDisconnectedNodes } from './n8n/graph'
 import { parseWorkflow } from './n8n/parse'
-import type { WorkflowSummary } from './n8n/types'
+import type { N8nNode, NormalizedWorkflow, WorkflowSummary } from './n8n/types'
 import { runRules } from './rules'
 import type { RiskFinding } from './rules/types'
 
@@ -58,9 +58,9 @@ export function scanWorkflowInput(input: string, sourceLabel = 'Workflow JSON'):
     })
   }
 
-  const workflow = parseWorkflow(raw)
+  const originalWorkflow = parseWorkflow(raw)
 
-  if (workflow.nodes.length === 0) {
+  if (originalWorkflow.nodes.length === 0) {
     throw new ScannerInputError({
       code: 'invalid_workflow',
       title: 'No n8n nodes found',
@@ -68,35 +68,70 @@ export function scanWorkflowInput(input: string, sourceLabel = 'Workflow JSON'):
     })
   }
 
+  const disabledNodes = originalWorkflow.nodes.filter((node) => node.disabled)
+  const skippedNodes = originalWorkflow.nodes.filter((node) => !node.disabled && isNonOperationalNode(node))
+  const workflow = buildActiveWorkflow(originalWorkflow, disabledNodes, skippedNodes)
   const graph = buildGraph(workflow)
   const categoriesByNodeId = Object.fromEntries(
     workflow.nodes.map((node) => [node.id, categorizeNode(node)]),
-  )
-  const summary = summarizeWorkflow(workflow, graph, categoriesByNodeId)
-  const findings = runRules({ workflow, graph, categoriesByNodeId, summary })
+  ) as Record<string, NodeCategory[]>
+  const summary = summarizeWorkflow(originalWorkflow, workflow, graph, categoriesByNodeId)
+  const findings = runRules({
+    workflow,
+    originalWorkflow,
+    disabledNodes,
+    skippedNodes,
+    graph,
+    categoriesByNodeId,
+    summary,
+  })
 
   return {
     sourceLabel,
-    workflowName: workflow.name,
+    workflowName: originalWorkflow.name,
     summary,
     findings,
-    parserWarnings: workflow.warnings.map((warning) => warning.message),
+    parserWarnings: originalWorkflow.warnings.map((warning) => warning.message),
     scannedAt: new Date().toISOString(),
     durationMs: Math.round(performance.now() - startedAt),
   }
 }
 
+function buildActiveWorkflow(
+  workflow: NormalizedWorkflow,
+  disabledNodes: N8nNode[],
+  skippedNodes: N8nNode[],
+): NormalizedWorkflow {
+  const excludedIds = new Set([...disabledNodes, ...skippedNodes].map((node) => node.id))
+  const nodes = workflow.nodes.filter((node) => !excludedIds.has(node.id))
+  const activeIds = new Set(nodes.map((node) => node.id))
+  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]))
+  const nodeIdByName = Object.fromEntries(nodes.map((node) => [node.name, node.id]))
+
+  return {
+    ...workflow,
+    nodes,
+    nodeById,
+    nodeIdByName,
+    edges: workflow.edges.filter((edge) => activeIds.has(edge.sourceId) && activeIds.has(edge.targetId)),
+  }
+}
+
 function summarizeWorkflow(
-  workflow: ReturnType<typeof parseWorkflow>,
+  originalWorkflow: ReturnType<typeof parseWorkflow>,
+  workflow: NormalizedWorkflow,
   graph: ReturnType<typeof buildGraph>,
-  categoriesByNodeId: Record<string, string[]>,
+  categoriesByNodeId: Record<string, NodeCategory[]>,
 ): WorkflowSummary {
-  const categoryMatches = (category: string) =>
+  const categoryMatches = (category: NodeCategory) =>
     workflow.nodes.filter((node) => categoriesByNodeId[node.id]?.includes(category))
 
   return {
-    workflowName: workflow.name,
-    totalNodes: workflow.nodes.length,
+    workflowName: originalWorkflow.name,
+    totalNodes: originalWorkflow.nodes.length,
+    activeNodes: workflow.nodes.length,
+    disabledNodes: originalWorkflow.nodes.filter((node) => node.disabled).length,
+    skippedNodes: originalWorkflow.nodes.filter((node) => !node.disabled && isNonOperationalNode(node)).length,
     totalEdges: workflow.edges.length,
     triggerNodes: workflow.nodes.filter(
       (node) =>
@@ -111,6 +146,6 @@ function summarizeWorkflow(
         (categoriesByNodeId[node.id]?.includes('hubspot') || categoriesByNodeId[node.id]?.includes('crm')),
     ).length,
     disconnectedNodes: getDisconnectedNodes(workflow, graph).length,
-    parserWarnings: workflow.warnings.length,
+    parserWarnings: originalWorkflow.warnings.length,
   }
 }

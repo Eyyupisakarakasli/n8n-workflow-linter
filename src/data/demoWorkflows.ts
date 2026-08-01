@@ -1,6 +1,7 @@
-import apiNoErrorHandling from './demo-workflows/api-no-error-handling.json?raw'
-import scheduleDuplicateRisk from './demo-workflows/schedule-duplicate-risk.json?raw'
-import webhookHubspotRisk from './demo-workflows/webhook-hubspot-risk.json?raw'
+import cleanWebhookHubspot from '../../tests/fixtures/clean-webhook-hubspot-upsert.json?raw'
+import leakyWorkflow from '../../tests/fixtures/leaky-workflow.json?raw'
+import scheduleMinutesIntervalRisk from '../../tests/fixtures/schedule-minutes-interval-risk.json?raw'
+import webhookHubspotRisk from '../../tests/fixtures/risky-webhook-hubspot-create.json?raw'
 
 export interface DemoWorkflow {
   id: string
@@ -11,21 +12,27 @@ export interface DemoWorkflow {
 
 export const demoWorkflows: DemoWorkflow[] = [
   {
+    id: 'clean-webhook-hubspot-upsert',
+    name: 'Clean webhook to HubSpot sample',
+    description: 'Authenticated webhook, validation, normalization, HubSpot upsert, and Slack notification.',
+    json: cleanWebhookHubspot,
+  },
+  {
     id: 'webhook-hubspot-risk',
     name: 'Webhook to HubSpot risk',
     description: 'Direct public webhook to HubSpot create, no validation or dedupe.',
     json: webhookHubspotRisk,
   },
   {
-    id: 'api-no-error-handling',
-    name: 'API without error handling',
-    description: 'Frequent schedule, list endpoint, no retry/error branch, query token risk.',
-    json: apiNoErrorHandling,
+    id: 'schedule-minutes-interval-risk',
+    name: 'Frequent schedule to CRM risk',
+    description: 'Real minutesInterval schedule export, HTTP pull, and CRM write without enough hardening.',
+    json: scheduleMinutesIntervalRisk,
   },
   {
-    id: 'schedule-duplicate-risk',
-    name: 'Duplicate CRM write risk',
-    description: 'A scheduled lead sync can reach multiple HubSpot create paths.',
-    json: scheduleDuplicateRisk,
+    id: 'leaky-workflow',
+    name: 'Secrets and pinned data sample',
+    description: 'Credential ID, hardcoded key, embedded secret, query-string secret, and pinned data.',
+    json: leakyWorkflow,
   },
 ]

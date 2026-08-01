@@ -7,15 +7,24 @@ export type Confidence = 'high' | 'medium' | 'low'
 
 export interface RuleContext {
   workflow: NormalizedWorkflow
+  originalWorkflow: NormalizedWorkflow
+  disabledNodes: N8nNode[]
+  skippedNodes: N8nNode[]
   graph: WorkflowGraph
   categoriesByNodeId: Record<string, NodeCategory[]>
   summary: WorkflowSummary
 }
 
+export type ShareSafetyImpact = 'must-fix' | 'worth-fixing' | 'minor'
+
 export interface RiskFinding {
   id: string
   ruleId: string
   title: string
+  plainTitle: string
+  plainMeaning: string
+  fixSteps: string[]
+  shareSafetyImpact: ShareSafetyImpact
   severity: Severity
   category: string
   nodeIds: string[]
@@ -29,17 +38,26 @@ export interface RiskFinding {
 export interface RuleDefinition {
   id: string
   title: string
+  plainTitle: string
+  plainMeaning: string
+  fixSteps: string[]
+  shareSafetyImpact: ShareSafetyImpact
   category: string
-  severity: Severity
+  defaultSeverity: Severity
   run: (context: RuleContext) => RiskFinding[]
 }
 
 export interface FindingInput {
   rule: RuleDefinition
-  node: N8nNode
+  node?: N8nNode
+  nodes?: N8nNode[]
   severity?: Severity
   confidence?: Confidence
   problem: string
   whyItMatters: string
-  suggestedFix: string
+  suggestedFix?: string
+  plainTitle?: string
+  plainMeaning?: string
+  fixSteps?: string[]
+  shareSafetyImpact?: ShareSafetyImpact
 }

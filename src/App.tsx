@@ -13,9 +13,9 @@ import {
   Upload,
   XCircle,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import './App.css'
-import { buildFixChecklist, buildMarkdownReport } from './core/report/markdown'
+import { buildFixChecklist, buildMarkdownReport, getReportVerdict } from './core/report/markdown'
 import type { ScanError, ScanResult } from './core/scan'
 import type { Severity } from './core/rules/types'
 import { demoWorkflows } from './data/demoWorkflows'
@@ -38,6 +38,7 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [reportCopyState, setReportCopyState] = useState<CopyState>('idle')
   const [checklistCopyState, setChecklistCopyState] = useState<CopyState>('idle')
+  const [isDragging, setIsDragging] = useState(false)
   const workerRef = useRef<Worker | null>(null)
 
   useEffect(() => {
@@ -69,7 +70,22 @@ function App() {
     return [...new Set(scanResult.findings.map((finding) => finding.category))].sort()
   }, [scanResult])
 
+  function setSizeLimitError(source: 'file' | 'paste') {
+    setStatus('error')
+    setScanResult(null)
+    setScanError({
+      code: 'invalid_workflow',
+      title: source === 'file' ? 'Workflow file is too large' : 'Workflow JSON is too large',
+      detail: 'The current public beta accepts workflow JSON up to 2 MB.',
+    })
+  }
+
   function runScan(input = rawInput, label = sourceLabel) {
+    if (byteSize(input) > maxFileBytes) {
+      setSizeLimitError('paste')
+      return
+    }
+
     workerRef.current?.terminate()
     const worker = new Worker(new URL('./worker/scanner.worker.ts', import.meta.url), { type: 'module' })
     const requestId = createRequestId()
@@ -77,6 +93,8 @@ function App() {
 
     setStatus('scanning')
     setScanError(null)
+    setSeverityFilter('all')
+    setCategoryFilter('all')
     setReportCopyState('idle')
     setChecklistCopyState('idle')
 
@@ -126,12 +144,7 @@ function App() {
     }
 
     if (file.size > maxFileBytes) {
-      setStatus('error')
-      setScanError({
-        code: 'invalid_workflow',
-        title: 'Workflow file is too large',
-        detail: 'The current public beta accepts workflow JSON files up to 2 MB.',
-      })
+      setSizeLimitError('file')
       return
     }
 
@@ -142,7 +155,40 @@ function App() {
     runScan(text, file.name)
   }
 
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    setIsDragging(false)
+
+    const file = event.dataTransfer.files[0]
+    if (file) void handleFile(file)
+  }
+
+  function handleRawInputChange(value: string) {
+    setRawInput(value)
+    setSourceLabel('Pasted workflow')
+    setSelectedDemoId('')
+    setScanResult(null)
+
+    if (byteSize(value) > maxFileBytes) {
+      setSizeLimitError('paste')
+      return
+    }
+
+    setStatus('idle')
+    setScanError(null)
+  }
+
   function loadDemo(demoId: string) {
+    if (!demoId) {
+      setSelectedDemoId('')
+      setRawInput('')
+      setSourceLabel('Pasted workflow')
+      setScanResult(null)
+      setScanError(null)
+      setStatus('idle')
+      return
+    }
+
     const demo = demoWorkflows.find((item) => item.id === demoId)
     if (!demo) return
 
@@ -185,6 +231,8 @@ function App() {
         <div>
           <p className="eyebrow">Local n8n reliability scanner</p>
           <h1>n8n Workflow Linter</h1>
+          <p className="header-promise">Find risky nodes in your n8n workflow before they break production.</p>
+          <p className="header-subline">Upload your workflow JSON and get a local reliability report.</p>
         </div>
         <div className="privacy-badge">
           <ShieldCheck size={18} aria-hidden="true" />
@@ -197,12 +245,21 @@ function App() {
           <div className="panel-heading">
             <div>
               <h2>Workflow JSON</h2>
-              <p>Upload, paste, or inspect a demo export.</p>
+              <p>Upload, paste, or inspect a sample export.</p>
             </div>
             <FileJson size={22} aria-hidden="true" />
           </div>
 
-          <label className="dropzone">
+          <label
+            className={`dropzone ${isDragging ? 'dragging' : ''}`}
+            onDragEnter={(event) => {
+              event.preventDefault()
+              setIsDragging(true)
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+          >
             <Upload size={24} aria-hidden="true" />
             <span>Drop or choose workflow JSON</span>
             <input
@@ -218,11 +275,7 @@ function App() {
 
           <div className="demo-row">
             <label htmlFor="demo-workflow">Demo</label>
-            <select
-              id="demo-workflow"
-              value={selectedDemoId}
-              onChange={(event) => loadDemo(event.target.value)}
-            >
+            <select id="demo-workflow" value={selectedDemoId} onChange={(event) => loadDemo(event.target.value)}>
               <option value="">None</option>
               {demoWorkflows.map((demo) => (
                 <option key={demo.id} value={demo.id}>
@@ -235,19 +288,16 @@ function App() {
           <textarea
             aria-label="Paste n8n workflow JSON"
             value={rawInput}
-            onChange={(event) => {
-              setRawInput(event.target.value)
-              setSourceLabel('Pasted workflow')
-              setSelectedDemoId('')
-              setStatus('idle')
-              setScanResult(null)
-              setScanError(null)
-            }}
+            onChange={(event) => handleRawInputChange(event.target.value)}
             spellCheck={false}
           />
 
           <button className="primary-action" type="button" onClick={() => runScan()} disabled={status === 'scanning'}>
-            {status === 'scanning' ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Play size={18} aria-hidden="true" />}
+            {status === 'scanning' ? (
+              <Loader2 className="spin" size={18} aria-hidden="true" />
+            ) : (
+              <Play size={18} aria-hidden="true" />
+            )}
             <span>{status === 'scanning' ? 'Scanning' : 'Scan workflow'}</span>
           </button>
 
@@ -278,6 +328,8 @@ function App() {
           ) : null}
         </section>
       </section>
+
+      <DocsBlock />
     </main>
   )
 }
@@ -287,7 +339,7 @@ function EmptyState() {
     <div className="empty-state">
       <FileText size={34} aria-hidden="true" />
       <h2>Ready to scan</h2>
-      <p>Choose a demo or add a workflow JSON export.</p>
+      <p>Choose a sample or add a workflow JSON export.</p>
     </div>
   )
 }
@@ -341,9 +393,16 @@ function ReportView({
   onCopyChecklist,
   onDownloadReport,
 }: ReportViewProps) {
+  const verdict = getReportVerdict(result)
   const highCount = result.findings.filter(
     (finding) => finding.severity === 'critical' || finding.severity === 'high',
   ).length
+  const groupedFindings = severityOrder
+    .map((severity) => ({
+      severity,
+      findings: visibleFindings.filter((finding) => finding.severity === severity),
+    }))
+    .filter((group) => group.findings.length > 0)
 
   return (
     <div className="report-stack">
@@ -353,13 +412,32 @@ function ReportView({
           <h2>{result.workflowName}</h2>
         </div>
         <div className={highCount > 0 ? 'risk-pill high' : 'risk-pill clean'}>
-          {highCount > 0 ? <AlertTriangle size={18} aria-hidden="true" /> : <CheckCircle2 size={18} aria-hidden="true" />}
-          <span>{highCount > 0 ? `${highCount} high-risk` : 'No high-risk findings'}</span>
+          {highCount > 0 ? (
+            <AlertTriangle size={18} aria-hidden="true" />
+          ) : (
+            <CheckCircle2 size={18} aria-hidden="true" />
+          )}
+          <span>{highCount > 0 ? `${highCount} critical/high` : 'No critical/high findings'}</span>
+        </div>
+      </div>
+
+      <div className={`verdict-band ${verdict.tone}`}>
+        {verdict.tone === 'success' ? (
+          <CheckCircle2 size={21} aria-hidden="true" />
+        ) : (
+          <AlertTriangle size={21} aria-hidden="true" />
+        )}
+        <div>
+          <strong>{verdict.label}</strong>
+          <span>{verdict.detail}</span>
         </div>
       </div>
 
       <div className="summary-grid">
         <SummaryMetric label="Nodes" value={result.summary.totalNodes} />
+        <SummaryMetric label="Active" value={result.summary.activeNodes} />
+        <SummaryMetric label="Disabled" value={result.summary.disabledNodes} />
+        <SummaryMetric label="Skipped" value={result.summary.skippedNodes} />
         <SummaryMetric label="Connections" value={result.summary.totalEdges} />
         <SummaryMetric label="Triggers" value={result.summary.triggerNodes} />
         <SummaryMetric label="HTTP" value={result.summary.httpNodes} />
@@ -403,10 +481,17 @@ function ReportView({
       </div>
 
       {result.parserWarnings.length > 0 ? (
-        <div className="warning-strip">
-          <AlertTriangle size={18} aria-hidden="true" />
-          <span>{result.parserWarnings.length} parser warning found. Scan continued with the usable workflow data.</span>
-        </div>
+        <details className="warning-details">
+          <summary>
+            <AlertTriangle size={18} aria-hidden="true" />
+            <span>{result.parserWarnings.length} parser warning found. Scan continued with usable workflow data.</span>
+          </summary>
+          <ul>
+            {result.parserWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </details>
       ) : null}
 
       <div className="finding-list">
@@ -417,30 +502,40 @@ function ReportView({
             <p>Current scanner rules did not flag findings for this filter.</p>
           </div>
         ) : (
-          visibleFindings.map((finding) => (
-            <article key={finding.id} className={`finding-card ${finding.severity}`}>
-              <div className="finding-topline">
-                <span className={`severity ${finding.severity}`}>{titleCase(finding.severity)}</span>
-                <span>{finding.category}</span>
-                <span>{titleCase(finding.confidence)} confidence</span>
-              </div>
-              <h3>{finding.title}</h3>
-              <p className="node-line">{finding.nodeNames.join(', ')}</p>
-              <dl>
-                <div>
-                  <dt>Problem</dt>
-                  <dd>{finding.problem}</dd>
-                </div>
-                <div>
-                  <dt>Why it matters</dt>
-                  <dd>{finding.whyItMatters}</dd>
-                </div>
-                <div>
-                  <dt>Suggested fix</dt>
-                  <dd>{finding.suggestedFix}</dd>
-                </div>
-              </dl>
-            </article>
+          groupedFindings.map((group) => (
+            <section key={group.severity} className={`finding-group ${group.severity}`}>
+              <h3>
+                {titleCase(group.severity)} <span>{group.findings.length}</span>
+              </h3>
+              {group.findings.map((finding) => (
+                <article key={finding.id} className={`finding-card ${finding.severity}`}>
+                  <div className="finding-topline">
+                    <span className={`severity ${finding.severity}`}>{titleCase(finding.severity)}</span>
+                    <span>{finding.category}</span>
+                    <span>{titleCase(finding.confidence)} confidence</span>
+                  </div>
+                  <h4>{finding.plainTitle}</h4>
+                  <p className="node-line">{finding.nodeNames.join(', ') || 'Workflow level'}</p>
+                  <p className="finding-meaning">{finding.plainMeaning}</p>
+                  <dl>
+                    <div>
+                      <dt>Problem</dt>
+                      <dd>{finding.problem}</dd>
+                    </div>
+                    <div>
+                      <dt>Fix steps</dt>
+                      <dd>
+                        <ol>
+                          {finding.fixSteps.map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ol>
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </section>
           ))
         )}
       </div>
@@ -454,6 +549,33 @@ function SummaryMetric({ label, value }: { label: string; value: number }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  )
+}
+
+function DocsBlock() {
+  return (
+    <section className="docs-block" aria-label="Scanner notes">
+      <article>
+        <h2>How to export JSON from n8n</h2>
+        <ol>
+          <li>Open the workflow in n8n.</li>
+          <li>Use Download or Export from the workflow menu.</li>
+          <li>Upload the exported .json file here.</li>
+        </ol>
+      </article>
+      <article>
+        <h2>Where your data goes</h2>
+        <p>The file is parsed and scanned in your browser. This app does not add analytics, storage, or server uploads.</p>
+      </article>
+      <article>
+        <h2>What this scanner checks</h2>
+        <p>Webhook exposure, unsafe write paths, HubSpot dedupe gaps, HTTP timeout/retry/error handling, secrets, pinned data, disabled nodes, and naming hygiene.</p>
+      </article>
+      <article>
+        <h2>What it does not guarantee</h2>
+        <p>It cannot prove runtime behavior, credentials, API permissions, or business logic correctness. Treat the report as a pre-share reliability review.</p>
+      </article>
+    </section>
   )
 }
 
@@ -502,6 +624,10 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 80)
+}
+
+function byteSize(value: string): number {
+  return new TextEncoder().encode(value).byteLength
 }
 
 export default App

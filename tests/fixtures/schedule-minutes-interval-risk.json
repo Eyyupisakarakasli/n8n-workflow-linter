@@ -1,0 +1,75 @@
+{
+  "name": "Risky - Frequent Schedule Writes CRM",
+  "nodes": [
+    {
+      "id": "schedule-every-minute",
+      "name": "Lead Sync Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-leads",
+      "name": "Fetch Recent Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [280, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.example.com/leads"
+      }
+    },
+    {
+      "id": "create-contact",
+      "name": "Create HubSpot Contact From Lead",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [560, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{ $json.email }}"
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Lead Sync Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Leads": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Contact From Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

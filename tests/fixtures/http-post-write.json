@@ -1,0 +1,47 @@
+{
+  "name": "Risky - Webhook To HTTP POST",
+  "nodes": [
+    {
+      "id": "webhook-post",
+      "name": "Receive Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "orders",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "id": "http-post",
+      "name": "Create Order In External API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [280, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.example.com/orders",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Receive Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Create Order In External API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

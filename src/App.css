@@ -28,6 +28,19 @@
   line-height: 1.02;
 }
 
+.header-promise,
+.header-subline {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.header-subline {
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--text-muted);
@@ -39,7 +52,8 @@
 
 .privacy-badge,
 .risk-pill,
-.warning-strip,
+.verdict-band,
+.warning-details summary,
 .report-actions button,
 .primary-action,
 .filters,
@@ -125,6 +139,12 @@
   color: var(--accent);
 }
 
+.dropzone.dragging {
+  border-color: var(--accent);
+  background: #eef4ff;
+  color: var(--accent);
+}
+
 .dropzone input {
   position: absolute;
   inset: 0;
@@ -204,7 +224,8 @@ textarea:focus {
 
 .empty-state,
 .error-state,
-.success-state {
+.success-state,
+.fatal-error {
   display: flex;
   min-height: 560px;
   flex-direction: column;
@@ -219,8 +240,23 @@ textarea:focus {
   color: var(--green-strong);
 }
 
-.error-state svg {
+.error-state svg,
+.fatal-error svg {
   color: var(--red-strong);
+}
+
+.fatal-error {
+  min-height: calc(100vh - 56px);
+}
+
+.fatal-error h1 {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.fatal-error p {
+  margin: 0;
+  color: var(--text-muted);
 }
 
 .report-stack {
@@ -248,9 +284,48 @@ textarea:focus {
   background: var(--green-soft);
 }
 
+.verdict-band {
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.verdict-band div {
+  display: grid;
+  gap: 2px;
+}
+
+.verdict-band strong {
+  color: var(--text-strong);
+}
+
+.verdict-band span {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.verdict-band.danger {
+  border-color: #f2b8b5;
+  background: var(--red-soft);
+  color: var(--red-strong);
+}
+
+.verdict-band.warning {
+  border-color: #fedf89;
+  background: var(--amber-soft);
+  color: var(--amber-strong);
+}
+
+.verdict-band.success {
+  border-color: #abefc6;
+  background: var(--green-soft);
+  color: var(--green-strong);
+}
+
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -314,19 +389,60 @@ textarea:focus {
   background: var(--surface);
 }
 
-.warning-strip {
-  gap: 8px;
-  padding: 10px 12px;
+.warning-details {
   border-radius: 8px;
   color: var(--amber-strong);
   background: var(--amber-soft);
   font-size: 14px;
 }
 
+.warning-details summary {
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.warning-details ul {
+  margin: 0;
+  padding: 0 18px 12px 42px;
+  color: var(--text);
+}
+
 .finding-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
+}
+
+.finding-group {
+  display: grid;
+  gap: 10px;
+}
+
+.finding-group > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.finding-group.low,
+.finding-group.info {
+  opacity: 0.88;
+}
+
+.finding-group > h3 span {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .finding-card {
@@ -382,7 +498,7 @@ textarea:focus {
   background: var(--blue-soft);
 }
 
-.finding-card h3 {
+.finding-card h4 {
   margin: 12px 0 4px;
   color: var(--text-strong);
   font-size: 18px;
@@ -393,6 +509,11 @@ textarea:focus {
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 13px;
+}
+
+.finding-meaning {
+  margin: 12px 0 0;
+  color: var(--text);
 }
 
 dl {
@@ -410,6 +531,45 @@ dt {
 dd {
   margin: 4px 0 0;
   color: var(--text);
+}
+
+dd ol {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+dd li + li {
+  margin-top: 4px;
+}
+
+.docs-block {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 22px;
+  padding: 22px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.docs-block article {
+  min-width: 0;
+}
+
+.docs-block h2 {
+  margin: 0 0 8px;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.docs-block p,
+.docs-block ol {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.docs-block ol {
+  padding-left: 19px;
 }
 
 .spin {
@@ -430,6 +590,11 @@ dd {
   .input-panel {
     position: static;
   }
+
+  .summary-grid,
+  .docs-block {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -449,6 +614,10 @@ dd {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .docs-block {
+    grid-template-columns: 1fr;
   }
 
   .filters select {

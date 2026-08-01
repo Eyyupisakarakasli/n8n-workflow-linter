@@ -1,0 +1,110 @@
+{
+  "name": "Clean - Hardened HTTP Request",
+  "nodes": [
+    {
+      "id": "schedule-daily",
+      "name": "Daily Customer Pull",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch-customers",
+      "name": "Fetch Customers With Timeout Retry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [280, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.example.com/customers",
+        "options": {
+          "timeout": 15000,
+          "pagination": {
+            "paginationMode": "responseContainsNextURL"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "normalize-customers",
+      "name": "Normalize Customer Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [560, -80],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "email",
+              "value": "={{ $json.email.trim().toLowerCase() }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "notify-api-failure",
+      "name": "Notify API Failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [560, 120],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#ops",
+        "text": "Customer API failed"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Customer Pull": {
+      "main": [
+        [
+          {
+            "node": "Fetch Customers With Timeout Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Customers With Timeout Retry": {
+      "main": [
+        [
+          {
+            "node": "Normalize Customer Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

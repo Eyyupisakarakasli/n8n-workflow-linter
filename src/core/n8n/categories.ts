@@ -1,4 +1,4 @@
-import type { N8nNode } from './types'
+import type { JsonObject, N8nNode } from './types'
 
 export type NodeCategory =
   | 'webhook'
@@ -15,6 +15,25 @@ export type NodeCategory =
   | 'write'
   | 'unknown'
 
+const writeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const writeOperations = new Set(['create', 'update', 'upsert', 'insert', 'append', 'delete', 'send', 'post'])
+const readOperations = new Set(['get', 'getall', 'get all', 'search', 'lookup', 'find', 'read', 'list'])
+const nonOperationalSuffixes = new Set(['stickyNote', 'noOp', 'noop'])
+
+export function getNodeTypeSuffix(node: N8nNode): string {
+  return node.type.split('.').pop() ?? node.type
+}
+
+export function nodeTypeIs(node: N8nNode, ...suffixes: string[]): boolean {
+  const suffix = getNodeTypeSuffix(node).toLowerCase()
+  return suffixes.some((candidate) => suffix === candidate.toLowerCase())
+}
+
+export function isNonOperationalNode(node: N8nNode): boolean {
+  const suffix = getNodeTypeSuffix(node)
+  return nonOperationalSuffixes.has(suffix) || suffix.toLowerCase() === 'noop'
+}
+
 function lowerText(value: unknown): string {
   try {
     return JSON.stringify(value)?.toLowerCase() ?? ''
@@ -24,48 +43,54 @@ function lowerText(value: unknown): string {
 }
 
 export function nodeSearchText(node: N8nNode): string {
+  if (isNonOperationalNode(node)) {
+    return [node.name, node.type].join(' ').toLowerCase()
+  }
+
   return [
     node.name,
     node.type,
     node.notes ?? '',
-    lowerText(node.parameters),
+    lowerText(withoutStickyContent(node.parameters)),
     lowerText(node.credentials),
   ]
     .join(' ')
     .toLowerCase()
 }
 
-export function categorizeNode(node: N8nNode): NodeCategory[] {
-  const text = nodeSearchText(node)
-  const type = node.type.toLowerCase()
-  const categories = new Set<NodeCategory>()
+function withoutStickyContent(parameters: JsonObject): JsonObject {
+  const { content: _content, ...rest } = parameters
+  return rest
+}
 
-  if (type.includes('webhook')) categories.add('webhook')
-  if (type.includes('schedule') || type.includes('cron') || type.includes('interval')) categories.add('schedule')
-  if (type.includes('httprequest') || type.includes('http request') || type.includes('http')) categories.add('http')
-  if (type.includes('hubspot') || text.includes('hubspot')) {
+export function categorizeNode(node: N8nNode): NodeCategory[] {
+  if (node.disabled || isNonOperationalNode(node)) return []
+
+  const suffix = getNodeTypeSuffix(node).toLowerCase()
+  const text = nodeSearchText(node)
+  const categories = new Set<NodeCategory>()
+  const operation = getParameterString(node, 'operation').toLowerCase()
+  const resource = getParameterString(node, 'resource').toLowerCase()
+
+  if (suffix === 'webhook') categories.add('webhook')
+  if (suffix === 'scheduletrigger' || suffix === 'cron' || suffix === 'interval') categories.add('schedule')
+  if (suffix === 'httprequest') categories.add('http')
+  if (suffix === 'hubspot') {
     categories.add('hubspot')
     categories.add('crm')
   }
-  if (text.includes('salesforce') || text.includes('pipedrive') || text.includes('zoho')) categories.add('crm')
-  if (
-    type.includes('postgres') ||
-    type.includes('mysql') ||
-    type.includes('mongodb') ||
-    type.includes('supabase') ||
-    type.includes('database')
-  ) {
+  if (['salesforce', 'pipedrive', 'zohoCrm'].some((candidate) => suffix === candidate.toLowerCase())) {
+    categories.add('crm')
+  }
+  if (['postgres', 'mysql', 'mongoDb', 'supabase'].some((candidate) => suffix === candidate.toLowerCase())) {
     categories.add('database')
   }
-  if (type.includes('slack') || type.includes('email') || type.includes('gmail') || type.includes('telegram')) {
+  if (['slack', 'emailSend', 'gmail', 'telegram'].some((candidate) => suffix === candidate.toLowerCase())) {
     categories.add('notification')
   }
-  if (type.includes('log') || text.includes('logging') || text.includes('audit')) categories.add('logging')
+  if (suffix.includes('log') || text.includes('logging') || text.includes('audit')) categories.add('logging')
   if (
-    type.includes('set') ||
-    type.includes('code') ||
-    type.includes('function') ||
-    type.includes('itemlists') ||
+    ['set', 'code', 'function', 'functionitem', 'itemlists', 'editfields'].includes(suffix) ||
     text.includes('normalize') ||
     text.includes('lowercase') ||
     text.includes('trim')
@@ -73,8 +98,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('transform')
   }
   if (
-    type.includes('if') ||
-    type.includes('switch') ||
+    ['if', 'switch', 'filter'].includes(suffix) ||
     text.includes('validate') ||
     text.includes('validation') ||
     text.includes('required') ||
@@ -83,6 +107,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('validation')
   }
   if (
+    getWebhookAuthentication(node) !== 'none' ||
     text.includes('signature') ||
     text.includes('secret') ||
     text.includes('token check') ||
@@ -92,13 +117,19 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('security')
   }
 
-  const writeSignals = ['create', 'update', 'upsert', 'insert', 'append', 'delete', 'send', 'post']
-  if (
-    categories.has('hubspot') ||
-    categories.has('database') ||
-    categories.has('notification') ||
-    writeSignals.some((signal) => text.includes(`"operation":"${signal}`) || text.includes(`operation ${signal}`))
-  ) {
+  if (suffix === 'httprequest' && writeMethods.has(getHttpMethod(node))) {
+    categories.add('write')
+  }
+
+  if ((categories.has('hubspot') || categories.has('crm') || categories.has('database')) && isWriteOperation(operation)) {
+    categories.add('write')
+  }
+
+  if (categories.has('notification') && isWriteOperation(operation)) {
+    categories.add('write')
+  }
+
+  if (!categories.has('write') && resource && isWriteOperation(operation)) {
     categories.add('write')
   }
 
@@ -106,6 +137,37 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
   return [...categories]
 }
 
+export function getParameterString(node: N8nNode, key: string): string {
+  const value = node.parameters[key]
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (isRecord(value) && typeof value.value === 'string') return value.value
+  return ''
+}
+
+export function getHttpMethod(node: N8nNode): string {
+  return (getParameterString(node, 'method') || 'GET').toUpperCase()
+}
+
+export function getWebhookAuthentication(node: N8nNode): string {
+  const auth = getParameterString(node, 'authentication').toLowerCase()
+  return auth && auth !== 'none' ? auth : 'none'
+}
+
+export function isWriteOperation(operation: string): boolean {
+  const normalized = operation.toLowerCase().replace(/\s+/g, '')
+  return writeOperations.has(normalized)
+}
+
+export function isReadOperation(operation: string): boolean {
+  const normalized = operation.toLowerCase().replace(/\s+/g, '')
+  return readOperations.has(normalized)
+}
+
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {
   return categorizeNode(node).includes(category)
+}
+
+function isRecord(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

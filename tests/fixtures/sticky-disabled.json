@@ -1,0 +1,53 @@
+{
+  "name": "Fixture - Sticky Note And Disabled Nodes",
+  "nodes": [
+    {
+      "id": "note-1",
+      "name": "Production Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -180],
+      "parameters": {
+        "content": "Draft only: Create HubSpot Contact, HTTP Request POST, x-api-key."
+      }
+    },
+    {
+      "id": "disabled-http",
+      "name": "Disabled HTTP Request Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [0, 0],
+      "disabled": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.example.com/customers"
+      }
+    },
+    {
+      "id": "disabled-hubspot",
+      "name": "Disabled HubSpot Create Draft",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [280, 0],
+      "disabled": true,
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{ $json.email }}"
+      }
+    }
+  ],
+  "connections": {
+    "Disabled HTTP Request Draft": {
+      "main": [
+        [
+          {
+            "node": "Disabled HubSpot Create Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -22,6 +22,7 @@ export interface RawN8nWorkflow extends JsonObject {
   name?: string
   nodes?: RawN8nNode[]
   connections?: RawN8nConnections
+  pinData?: JsonObject
 }
 
 export interface RawN8nConnectionTarget extends JsonObject {
@@ -88,11 +89,15 @@ export interface NormalizedWorkflow {
   edges: ConnectionEdge[]
   warnings: ParserWarning[]
   raw: RawN8nWorkflow
+  rawText?: string
 }
 
 export interface WorkflowSummary {
   workflowName: string
   totalNodes: number
+  activeNodes: number
+  disabledNodes: number
+  skippedNodes: number
   totalEdges: number
   triggerNodes: number
   httpNodes: number

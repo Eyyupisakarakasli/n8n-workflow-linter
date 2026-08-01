@@ -169,6 +169,8 @@ function normalizeConnections(
 
 export function parseWorkflow(raw: unknown): NormalizedWorkflow {
   const warnings: ParserWarning[] = []
+  const rawText = safeStringify(raw)
+  raw = unwrapWorkflowEnvelope(raw, warnings)
 
   if (!isRecord(raw)) {
     warnings.push({
@@ -183,6 +185,7 @@ export function parseWorkflow(raw: unknown): NormalizedWorkflow {
       edges: [],
       warnings,
       raw: {},
+      rawText,
     }
   }
 
@@ -234,5 +237,41 @@ export function parseWorkflow(raw: unknown): NormalizedWorkflow {
     edges: normalizeConnections(workflow, nodeIdByName, nodeById, warnings),
     warnings,
     raw: workflow,
+    rawText,
   }
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
+}
+
+function unwrapWorkflowEnvelope(raw: unknown, warnings: ParserWarning[]): unknown {
+  if (Array.isArray(raw)) {
+    const firstWorkflow = raw.find((item) => isRecord(item) && Array.isArray(item.nodes))
+    if (firstWorkflow) {
+      warnings.push({
+        code: 'invalid_shape',
+        message: `Found ${raw.length} workflow-like items; scanned the first workflow only.`,
+      })
+      return firstWorkflow
+    }
+    return raw
+  }
+
+  if (isRecord(raw) && Array.isArray(raw.data)) {
+    const firstWorkflow = raw.data.find((item) => isRecord(item) && Array.isArray(item.nodes))
+    if (firstWorkflow) {
+      warnings.push({
+        code: 'invalid_shape',
+        message: 'Found a data array wrapper; scanned the first workflow in data.',
+      })
+      return firstWorkflow
+    }
+  }
+
+  return raw
 }
