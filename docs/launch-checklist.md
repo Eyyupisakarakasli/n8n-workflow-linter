@@ -49,9 +49,13 @@ Do not add auth, payment, n8n API connection, team features, marketplace integra
 
 ## Deployment maintenance
 
-Current deployment was created through Vercel CLI. GitHub auto deploy was not connected automatically during the first deploy.
+GitHub auto deploy is connected in Vercel:
 
-Until GitHub auto deploy is connected, use:
+- Repository: `Eyyupisakarakasli/n8n-workflow-linter`
+- Production branch: `main`
+- Pushes to `main` should create production deployments according to the Vercel project settings.
+
+Before pushing beta changes, run:
 
 ```bash
 npm.cmd run test
@@ -60,8 +64,11 @@ npm.cmd run build
 npm.cmd run test:privacy
 npm.cmd audit --omit=dev --audit-level=moderate
 git push
+```
+
+If Git auto deploy is unavailable, use the manual fallback:
+
+```bash
 vercel.cmd build --prod
 vercel.cmd deploy --prebuilt --prod
 ```
-
-After GitHub auto deploy is connected in Vercel, pushes to `main` should create production deployments according to the Vercel project settings.
