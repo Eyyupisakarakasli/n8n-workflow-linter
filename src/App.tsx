@@ -502,7 +502,9 @@ function ReportView({
       </div>
 
       {hiddenInfoCount > 0 ? (
-        <p className="filter-note">{hiddenInfoCount} info-level hygiene finding hidden by default.</p>
+        <p className="filter-note">
+          {hiddenInfoCount} info-level hygiene {pluralize(hiddenInfoCount, 'finding')} hidden by default.
+        </p>
       ) : null}
 
       {result.parserWarnings.length > 0 ? (
@@ -617,6 +619,10 @@ function copyLabel(state: CopyState, defaultLabel: string): string {
   if (state === 'copied') return 'Copied'
   if (state === 'failed') return 'Copy failed'
   return defaultLabel
+}
+
+function pluralize(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`
 }
 
 async function writeClipboard(value: string): Promise<boolean> {

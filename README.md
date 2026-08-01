@@ -19,7 +19,7 @@ Out of scope for the MVP: auth, payment, n8n API connection, team features, mark
 ## Public beta checks
 
 - `tests/fixtures/clean-*.json` workflows should have zero critical/high findings.
-- Clean corpus non-info findings should stay at or below 0.15 findings per total node.
+- Clean corpus non-info findings should stay at or below 0.05 findings per total node.
 - Risky reference workflows should catch webhook auth, webhook direct write, HubSpot create without dedupe, HTTP hardening gaps, credential leaks, and pinned data.
 - Workflow JSON stays in the browser. The app does not add analytics, server uploads, or storage.
 - `npm run test:privacy` builds production output and fails if unexpected network, storage, or analytics APIs appear in `dist/`.

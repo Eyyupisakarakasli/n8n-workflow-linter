@@ -17,7 +17,7 @@ export function getReportVerdict(result: ScanResult): ReportVerdict {
   if (blockingFindings.length > 0) {
     return {
       label: 'Fix before production use',
-      detail: `${blockingFindings.length} critical/high finding needs attention before production use.`,
+      detail: `${blockingFindings.length} critical/high ${pluralize(blockingFindings.length, 'finding')} ${blockingFindings.length === 1 ? 'needs' : 'need'} attention before production use.`,
       tone: 'danger',
     }
   }
@@ -125,4 +125,8 @@ function buildChecklistLines(result: ScanResult): string[] {
 
 function titleCase(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
+}
+
+function pluralize(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`
 }

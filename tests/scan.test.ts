@@ -204,7 +204,7 @@ describe('scanWorkflowInput', () => {
     expect(cleanFixtureNames.length).toBeGreaterThanOrEqual(6)
     expect(totalNodes).toBeGreaterThan(0)
     expect(totalHighCritical).toBe(0)
-    expect(totalNonInfo / totalNodes).toBeLessThanOrEqual(0.15)
+    expect(totalNonInfo / totalNodes).toBeLessThanOrEqual(0.05)
     expect(totalFindings).toBeGreaterThan(totalNonInfo)
   })
 
@@ -435,9 +435,15 @@ describe('scanWorkflowInput', () => {
   it('exports markdown with verdict and fix steps', () => {
     const result = scanWorkflowInput(fixture('risky-webhook-hubspot-create.json'), 'risk')
     const markdown = buildMarkdownReport(result)
+    const singleBlockingMarkdown = buildMarkdownReport({
+      ...result,
+      findings: result.findings.filter((finding) => finding.severity === 'critical' || finding.severity === 'high').slice(0, 1),
+    })
     const checklist = buildFixChecklist(result)
 
     expect(markdown).toContain('Verdict: Fix before production use')
+    expect(markdown).toContain('critical/high findings need attention')
+    expect(singleBlockingMarkdown).toContain('1 critical/high finding needs attention')
     expect(markdown).toContain('Fix steps')
     expect(checklist).toContain('- [ ]')
   })

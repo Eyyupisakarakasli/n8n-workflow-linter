@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
 const distDir = join(projectRoot, 'dist')
 const scannedExtensions = new Set(['.css', '.html', '.js'])
+const allowedExternalOrigins = new Set()
 
 const blockedPatterns = [
   { label: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/g },
@@ -16,8 +17,14 @@ const blockedPatterns = [
   { label: 'analytics marker: posthog', pattern: /\bposthog\b/gi },
   { label: 'analytics marker: plausible', pattern: /\bplausible\b/gi },
   { label: 'analytics marker: mixpanel', pattern: /\bmixpanel\b/gi },
-  { label: 'analytics marker: amplitude', pattern: /\bamplitude\b/gi },
-  { label: 'analytics marker: segment', pattern: /\bsegment\b/gi },
+  {
+    label: 'analytics marker: amplitude',
+    pattern: /@amplitude\/analytics|api2\.amplitude\.com|cdn\.amplitude\.com|\bamplitude\.(?:getInstance|init|track)\b/gi,
+  },
+  {
+    label: 'analytics marker: segment',
+    pattern: /cdn\.segment\.com|api\.segment\.io|segment\.com\/analytics|\banalytics\.(?:load|page|track|identify|group|alias|ready)\s*\(/gi,
+  },
   { label: 'analytics marker: sentry', pattern: /\bsentry\b/gi },
   { label: 'analytics marker: datadog', pattern: /\bdatadog\b/gi },
 ]
@@ -36,6 +43,17 @@ for (const file of files) {
 
   for (const match of content.matchAll(/\bfetch\s*\(/g)) {
     fetchMatches.push({ file, index: match.index ?? 0, context: snippet(content, match.index ?? 0) })
+  }
+
+  for (const match of externalResourceMatches(content, extensionOf(file))) {
+    const origin = originOf(match.url)
+    if (!origin || allowedExternalOrigins.has(origin)) continue
+
+    violations.push({
+      file,
+      label: `unexpected external resource origin: ${origin}`,
+      context: match.context,
+    })
   }
 
   for (const blocked of blockedPatterns) {
@@ -94,4 +112,40 @@ function snippet(content, index) {
 
 function isViteModulepreloadFetch(context) {
   return context.includes('modulepreload') && context.includes('.ep') && context.includes('.href')
+}
+
+function externalResourceMatches(content, extension) {
+  const matches = []
+  const patterns =
+    extension === '.html'
+      ? [
+          /\b(?:src|href|action)\s*=\s*["'](https:\/\/[^"']+)["']/gi,
+          /<meta\b[^>]+\bcontent\s*=\s*["'](https:\/\/[^"']+)["']/gi,
+        ]
+      : extension === '.css'
+        ? [/\burl\(\s*["']?(https:\/\/[^"')]+)["']?\s*\)/gi, /@import\s+["'](https:\/\/[^"']+)["']/gi]
+        : [
+            /\.(?:src|href)\s*=\s*["'](https:\/\/[^"']+)["']/gi,
+            /\b(?:importScripts|import)\s*\(\s*["'](https:\/\/[^"']+)["']\s*\)/gi,
+          ]
+
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0
+    for (const match of content.matchAll(pattern)) {
+      matches.push({
+        url: match[1],
+        context: snippet(content, match.index ?? 0),
+      })
+    }
+  }
+
+  return matches
+}
+
+function originOf(url) {
+  try {
+    return new URL(url).origin
+  } catch {
+    return undefined
+  }
 }
