@@ -67,6 +67,55 @@ const safeCredentialIds = new Set([
   'PLACEHOLDER',
   'YOUR_CREDENTIAL_ID',
 ])
+const duplicateWriteHttpMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const duplicateWriteActionSignals = [
+  'create',
+  'update',
+  'upsert',
+  'insert',
+  'append',
+  'delete',
+  'save',
+  'write',
+  'persist',
+]
+const duplicateWriteTargetSignals = [
+  'airtable',
+  'company',
+  'companies',
+  'contact',
+  'contacts',
+  'crm',
+  'customer',
+  'customers',
+  'database',
+  'deal',
+  'deals',
+  'google sheets',
+  'hubspot',
+  'invoice',
+  'invoices',
+  'lead',
+  'leads',
+  'mongodb',
+  'mysql',
+  'notion',
+  'order',
+  'orders',
+  'pipedrive',
+  'postgres',
+  'record',
+  'records',
+  'row',
+  'rows',
+  'salesforce',
+  'sheet',
+  'sheets',
+  'supabase',
+  'table',
+  'ticket',
+  'tickets',
+]
 
 export interface SecretMatch {
   label: string
@@ -185,6 +234,17 @@ export function reachableWriteNodes(context: RuleContext, node: N8nNode): N8nNod
   )
 }
 
+export function isDuplicateWriteTarget(context: RuleContext, node: N8nNode): boolean {
+  const categories = context.categoriesByNodeId[node.id] ?? []
+  if (!categories.includes('write') || categories.includes('notification')) return false
+  if (categories.includes('hubspot') || categories.includes('crm') || categories.includes('database')) return true
+  if (categories.includes('http')) return httpLooksLikePersistentRecordWrite(node)
+
+  return (
+    nodeTextIncludesAny(node, duplicateWriteActionSignals) && nodeTextIncludesAny(node, duplicateWriteTargetSignals)
+  )
+}
+
 export function reachableWritePaths(context: RuleContext, node: N8nNode): ReachableWritePath[] {
   const paths: ReachableWritePath[] = []
   const queue: Array<{ nodeId: string; nodeIds: string[]; edges: ConnectionEdge[]; branchChoices: BranchChoice[] }> = [
@@ -282,6 +342,16 @@ function branchChoiceForEdge(context: RuleContext, edge: ConnectionEdge): Branch
   const source = context.workflow.nodeById[edge.sourceId]
   if (!source || !nodeTypeIs(source, 'if', 'switch')) return []
   return [{ nodeId: source.id, outputIndex: edge.outputIndex }]
+}
+
+function httpLooksLikePersistentRecordWrite(node: N8nNode): boolean {
+  if (!duplicateWriteHttpMethods.has(getHttpMethod(node))) return false
+
+  const operation = getParameterString(node, 'operation')
+  const searchText = nodeSearchText(node)
+  const actionText = `${operation} ${searchText}`
+
+  return textIncludesAny(actionText, duplicateWriteActionSignals) && textIncludesAny(searchText, duplicateWriteTargetSignals)
 }
 
 export function hasErrorHandling(context: RuleContext, node: N8nNode): boolean {

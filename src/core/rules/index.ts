@@ -13,6 +13,7 @@ import {
   hasSilentErrorContinue,
   hasTimeout,
   immediateDownstreamHasCategory,
+  isDuplicateWriteTarget,
   isDefaultNodeName,
   looksLikeCreateContact,
   looksLikeListEndpoint,
@@ -567,9 +568,7 @@ const duplicateWritePathRule: RuleDefinition = {
       .map((node) => ({
         node,
         writes: writeTargetsThatCanRunTogether(
-          reachableWritePaths(context, node).filter(
-            (path) => !context.categoriesByNodeId[path.target.id]?.includes('notification'),
-          ),
+          reachableWritePaths(context, node).filter((path) => isDuplicateWriteTarget(context, path.target)),
         ),
       }))
       .filter(({ writes }) => writes.length > 1)

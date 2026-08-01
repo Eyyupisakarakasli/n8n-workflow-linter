@@ -478,6 +478,140 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('duplicate-write-path')).toBe(true)
   })
 
+  it('does not treat sequential enrichment HTTP POST calls as duplicate persistent writes', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'AI lead enrichment pipeline',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Every morning at 8',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            typeVersion: 1,
+            parameters: {
+              rule: {
+                interval: [
+                  {
+                    field: 'hours',
+                    hoursInterval: 24,
+                  },
+                ],
+              },
+            },
+          },
+          {
+            id: 'apify',
+            name: 'Fetch fresh leads (Apify)',
+            type: 'n8n-nodes-base.httpRequest',
+            typeVersion: 4,
+            parameters: {
+              method: 'POST',
+              url: 'https://api.apify.com/v2/acts/example/run-sync-get-dataset-items',
+            },
+            onError: 'continueRegularOutput',
+          },
+          {
+            id: 'openai',
+            name: 'AI: score this lead',
+            type: 'n8n-nodes-base.httpRequest',
+            typeVersion: 4,
+            parameters: {
+              method: 'POST',
+              url: 'https://api.openai.com/v1/chat/completions',
+            },
+            onError: 'continueRegularOutput',
+          },
+          {
+            id: 'sheets',
+            name: 'Append qualified lead to Google Sheets',
+            type: 'n8n-nodes-base.googleSheets',
+            typeVersion: 4,
+            parameters: {
+              resource: 'sheet',
+              operation: 'append',
+            },
+          },
+        ],
+        connections: {
+          'Every morning at 8': {
+            main: [[{ node: 'Fetch fresh leads (Apify)', type: 'main', index: 0 }]],
+          },
+          'Fetch fresh leads (Apify)': {
+            main: [[{ node: 'AI: score this lead', type: 'main', index: 0 }]],
+          },
+          'AI: score this lead': {
+            main: [[{ node: 'Append qualified lead to Google Sheets', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'ai lead enrichment pipeline',
+    )
+
+    expect(ids(result).has('duplicate-write-path')).toBe(false)
+    expect(findingsFor(result, 'http-missing-retry')).toHaveLength(2)
+    expect(findingsFor(result, 'http-silent-error-continue')).toHaveLength(2)
+  })
+
+  it('still flags duplicate persistent HTTP record writes in the same branch', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Duplicate HTTP record writes',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Every morning',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            typeVersion: 1,
+            parameters: {},
+          },
+          {
+            id: 'order',
+            name: 'Create Order In External API',
+            type: 'n8n-nodes-base.httpRequest',
+            typeVersion: 4,
+            parameters: {
+              method: 'POST',
+              url: 'https://api.example.com/orders',
+              options: {
+                timeout: 10000,
+              },
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+          },
+          {
+            id: 'invoice',
+            name: 'Create Invoice In External API',
+            type: 'n8n-nodes-base.httpRequest',
+            typeVersion: 4,
+            parameters: {
+              method: 'POST',
+              url: 'https://api.example.com/invoices',
+              options: {
+                timeout: 10000,
+              },
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+          },
+        ],
+        connections: {
+          'Every morning': {
+            main: [[{ node: 'Create Order In External API', type: 'main', index: 0 }]],
+          },
+          'Create Order In External API': {
+            main: [[{ node: 'Create Invoice In External API', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'duplicate http record writes',
+    )
+
+    expect(ids(result).has('duplicate-write-path')).toBe(true)
+  })
+
   it('counts HTTP POST as a write path after a webhook', () => {
     const result = scanWorkflowInput(fixture('risky-http-post-write.json'), 'http post')
 
