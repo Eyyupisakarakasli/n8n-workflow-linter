@@ -1,0 +1,58 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f1f4f7;
+  --input: #ffffff;
+  --text: #344054;
+  --text-muted: #667085;
+  --text-strong: #111827;
+  --border: #d8dee6;
+  --border-strong: #aeb8c5;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.16);
+  --green-strong: #047857;
+  --green-soft: #ecfdf3;
+  --red-strong: #b42318;
+  --red-soft: #fef3f2;
+  --amber-strong: #b54708;
+  --amber-soft: #fffaeb;
+  --blue-strong: #175cd3;
+  --blue-soft: #eff8ff;
+  --shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+  --sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  color: var(--text);
+  background: var(--bg);
+  font: 16px/1.5 var(--sans);
+  letter-spacing: 0;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+select,
+textarea {
+  letter-spacing: 0;
+}
+
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+label:focus-within {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 2px;
+}

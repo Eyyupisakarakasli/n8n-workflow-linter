@@ -1,0 +1,113 @@
+{
+  "name": "Demo - Schedule Duplicate CRM Write Risk",
+  "nodes": [
+    {
+      "id": "schedule-2",
+      "name": "Lead Sync Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "value": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-2",
+      "name": "Get Recent Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.example.com/contacts",
+        "options": {}
+      },
+      "retryOnFail": false
+    },
+    {
+      "id": "if-1",
+      "name": "Lead Has Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.email}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hubspot-2",
+      "name": "Create HubSpot Contact From Email",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{$json.email}}"
+      }
+    },
+    {
+      "id": "hubspot-3",
+      "name": "Create HubSpot Contact From Phone",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "phone": "={{$json.phone}}"
+      }
+    }
+  ],
+  "connections": {
+    "Lead Sync Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Leads": {
+      "main": [
+        [
+          {
+            "node": "Lead Has Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Has Email": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Contact From Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create HubSpot Contact From Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
