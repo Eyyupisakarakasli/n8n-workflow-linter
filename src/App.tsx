@@ -16,7 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import './App.css'
 import { buildFixChecklist, buildMarkdownReport, getReportVerdict } from './core/report/markdown'
-import type { ScanError, ScanResult } from './core/scan'
+import { ScannerInputError, scanWorkflowInput, type ScanError, type ScanResult } from './core/scan'
 import type { Severity } from './core/rules/types'
 import { demoWorkflows } from './data/demoWorkflows'
 import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.worker'
@@ -88,10 +88,8 @@ function App() {
       return
     }
 
-    workerRef.current?.terminate()
-    const worker = new Worker(new URL('./worker/scanner.worker.ts', import.meta.url), { type: 'module' })
     const requestId = createRequestId()
-    workerRef.current = worker
+    workerRef.current?.terminate()
 
     setStatus('scanning')
     setScanError(null)
@@ -101,16 +99,41 @@ function App() {
     setReportCopyState('idle')
     setChecklistCopyState('idle')
 
+    const completeWithResult = (result: ScanResult) => {
+      setScanResult(result)
+      setStatus('ready')
+    }
+
+    const completeWithError = (error: ScanError) => {
+      setScanResult(null)
+      setScanError(error)
+      setStatus('error')
+    }
+
+    const runMainThreadFallback = () => {
+      try {
+        completeWithResult(scanWorkflowInput(input, label))
+      } catch (error) {
+        completeWithError(normalizeScanError(error))
+      }
+    }
+
+    let worker: Worker
+    try {
+      worker = new Worker(new URL('./worker/scanner.worker.ts', import.meta.url), { type: 'module' })
+      workerRef.current = worker
+    } catch {
+      runMainThreadFallback()
+      return
+    }
+
     worker.onmessage = (event: MessageEvent<ScanWorkerResponse>) => {
       if (event.data.requestId !== requestId) return
 
       if (event.data.ok) {
-        setScanResult(event.data.result)
-        setStatus('ready')
+        completeWithResult(event.data.result)
       } else {
-        setScanResult(null)
-        setScanError(event.data.error)
-        setStatus('error')
+        completeWithError(event.data.error)
       }
 
       worker.terminate()
@@ -118,18 +141,18 @@ function App() {
     }
 
     worker.onerror = () => {
-      setScanResult(null)
-      setScanError({
-        code: 'invalid_workflow',
-        title: 'Scanner worker failed',
-        detail: 'The workflow could not be scanned in the browser worker.',
-      })
-      setStatus('error')
       worker.terminate()
       workerRef.current = null
+      runMainThreadFallback()
     }
 
-    worker.postMessage({ requestId, sourceLabel: label, input } satisfies ScanWorkerRequest)
+    try {
+      worker.postMessage({ requestId, sourceLabel: label, input } satisfies ScanWorkerRequest)
+    } catch {
+      worker.terminate()
+      workerRef.current = null
+      runMainThreadFallback()
+    }
   }
 
   async function handleFile(file: File) {
@@ -609,6 +632,22 @@ function createRequestId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function normalizeScanError(error: unknown): ScanError {
+  if (error instanceof ScannerInputError) {
+    return {
+      code: error.code,
+      title: error.title,
+      detail: error.detail,
+    }
+  }
+
+  return {
+    code: 'invalid_workflow',
+    title: 'Workflow could not be scanned',
+    detail: error instanceof Error ? error.message : 'An unexpected scanner error occurred.',
+  }
 }
 
 function titleCase(value: string): string {
