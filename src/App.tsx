@@ -25,6 +25,8 @@ import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.wor
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
 const feedbackEmail = 'eyyupisa16@gmail.com'
+const feedbackForumUrl =
+  'https://community.n8n.io/t/looking-for-feedback-local-browser-scanner-for-exported-n8n-workflows/305727'
 
 type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
 type CopyState = 'idle' | 'copied' | 'failed'
@@ -43,12 +45,17 @@ function App() {
   const [checklistCopyState, setChecklistCopyState] = useState<CopyState>('idle')
   const [isDragging, setIsDragging] = useState(false)
   const workerRef = useRef<Worker | null>(null)
+  const autoScannedDemoRef = useRef(false)
 
   useEffect(() => {
     const demo = demoWorkflows.find((item) => item.id === selectedDemoId)
     if (!rawInput && demo) {
       setRawInput(demo.json)
       setSourceLabel(demo.name)
+      if (!autoScannedDemoRef.current) {
+        autoScannedDemoRef.current = true
+        runScan(demo.json, demo.name)
+      }
     }
   }, [rawInput, selectedDemoId])
 
@@ -260,7 +267,7 @@ function App() {
           <p className="eyebrow">Local n8n reliability scanner</p>
           <h1>n8n Workflow Linter</h1>
           <p className="header-promise">Check whether an exported n8n workflow is safe to share or use in production.</p>
-          <p className="header-subline">Upload your workflow JSON and get a local security and reliability report.</p>
+          <p className="header-subline">Upload your workflow JSON and get a local safe-to-share and production-readiness report.</p>
         </div>
         <div className="privacy-badge">
           <ShieldCheck size={18} aria-hidden="true" />
@@ -379,7 +386,7 @@ function ScanningState() {
     <div className="empty-state">
       <Loader2 className="spin" size={34} aria-hidden="true" />
       <h2>Scanning workflow</h2>
-      <p>The analysis is running in a browser worker.</p>
+      <p>The analysis is running locally in your browser.</p>
     </div>
   )
 }
@@ -548,7 +555,10 @@ function ReportView({
         <details className="warning-details">
           <summary>
             <AlertTriangle size={18} aria-hidden="true" />
-            <span>{result.parserWarnings.length} parser warning found. Scan continued with usable workflow data.</span>
+            <span>
+              {result.parserWarnings.length} {pluralize(result.parserWarnings.length, 'parser warning')} found. Scan
+              continued with usable workflow data.
+            </span>
           </summary>
           <ul>
             {result.parserWarnings.map((warning) => (
@@ -610,32 +620,53 @@ function ReportView({
 }
 
 function FeedbackCta({ result }: { result: ScanResult }) {
-  const subject = encodeURIComponent(`n8n Workflow Linter feedback: ${result.workflowName}`)
-  const body = encodeURIComponent(
-    [
-      'Please attach the exported markdown report from the app.',
-      '',
-      'Do not send raw workflow JSON unless it is fully sanitized.',
-      '',
-      'Feedback format:',
-      '- Verdict shown:',
-      '- Finding IDs that looked wrong:',
-      '- Expected result:',
-      '- Actual result:',
-      '- Safe redacted workflow shape:',
-    ].join('\n'),
-  )
+  const [copyState, setCopyState] = useState<CopyState>('idle')
+  const subject = `n8n Workflow Linter feedback: ${result.workflowName}`
+  const feedbackTemplate = [
+    'Please attach the exported markdown report from the app.',
+    '',
+    'Do not send raw workflow JSON unless it is fully sanitized.',
+    '',
+    'Feedback format:',
+    '- Verdict shown:',
+    '- Finding IDs that looked wrong:',
+    '- Expected result:',
+    '- Actual result:',
+    '- Safe redacted workflow shape:',
+  ].join('\n')
+
+  async function copyFeedbackTemplate() {
+    if (await writeClipboard(feedbackTemplate)) {
+      setCopyState('copied')
+      window.setTimeout(() => setCopyState('idle'), 1600)
+      return
+    }
+
+    setCopyState('failed')
+    window.setTimeout(() => setCopyState('idle'), 2200)
+  }
 
   return (
     <div className="feedback-cta">
       <div>
         <strong>Send safe beta feedback</strong>
         <p>Send the markdown report and a short note. Do not send raw workflow JSON.</p>
+        <span className="feedback-email">{feedbackEmail}</span>
       </div>
-      <a href={`mailto:${feedbackEmail}?subject=${subject}&body=${body}`}>
-        <Mail size={17} aria-hidden="true" />
-        <span>Email feedback</span>
-      </a>
+      <div className="feedback-actions">
+        <button type="button" onClick={() => void copyFeedbackTemplate()}>
+          <Copy size={17} aria-hidden="true" />
+          <span>{copyLabel(copyState, 'Copy template')}</span>
+        </button>
+        <a href={`mailto:${feedbackEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(feedbackTemplate)}`}>
+          <Mail size={17} aria-hidden="true" />
+          <span>Email feedback</span>
+        </a>
+        <a href={feedbackForumUrl} target="_blank" rel="noreferrer">
+          <FileText size={17} aria-hidden="true" />
+          <span>Forum thread</span>
+        </a>
+      </div>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 Client-side public beta for checking whether exported n8n workflow JSON files are safe to share or ready for production review.
 
-Upload your workflow JSON and get a local security and reliability report before sharing a template, asking for feedback, or putting a workflow into production.
+Upload your workflow JSON and get a local safe-to-share and production-readiness report before sharing a template, asking for feedback, or putting a workflow into production.
 
 Live public beta: https://n8n-workflow-linter.vercel.app
 
@@ -78,7 +78,7 @@ Use `npm.cmd` instead of `npm` on Windows PowerShell if script execution policy 
 
 ## Beta feedback
 
-Use the in-app email feedback link, or the feedback issue template in this repo if you have access. Send only the exported markdown report and a short note about what looked wrong. Avoid sharing raw workflow JSON.
+Use the in-app feedback links or reply in the public n8n community thread. Send only the exported markdown report and a short note about what looked wrong. Avoid sharing raw workflow JSON.
 
 Useful feedback includes:
 

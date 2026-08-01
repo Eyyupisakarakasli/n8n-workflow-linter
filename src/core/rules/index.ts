@@ -1,5 +1,5 @@
-import { getHttpMethod, getWebhookAuthentication } from '../n8n/categories'
-import { hasUpstreamNode } from '../n8n/graph'
+import { getHttpMethod, getWebhookAuthentication, nodeTypeIs } from '../n8n/categories'
+import { hasReachableNode, hasUpstreamNode } from '../n8n/graph'
 import type { N8nNode } from '../n8n/types'
 import {
   credentialIdLeaks,
@@ -15,11 +15,11 @@ import {
   immediateDownstreamHasCategory,
   isDuplicateWriteTarget,
   isDefaultNodeName,
+  knownSecretsInText,
   looksLikeCreateContact,
   looksLikeListEndpoint,
   looksLikeSearchUpdateOrUpsert,
   makeFinding,
-  nodeHasDownstreamCategory,
   nodeTextIncludesAny,
   nodesInCategory,
   pathHasCategoryBeforeTarget,
@@ -31,6 +31,19 @@ import {
 import type { RiskFinding, RuleContext, RuleDefinition } from './types'
 
 const httpWriteMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const inboundVerificationSignals = [
+  'signature',
+  'hmac',
+  'createhmac',
+  'x-hub-signature',
+  'x-signature',
+  'webhook secret',
+  'shared secret',
+  'signing secret',
+  'verify token',
+  'verify signature',
+  'validate signature',
+]
 
 const webhookValidationRule: RuleDefinition = {
   id: 'webhook-missing-validation',
@@ -111,7 +124,7 @@ const webhookSecretRule: RuleDefinition = {
   run(context) {
     return nodesInCategory(context, 'webhook')
       .filter((node) => getWebhookAuthentication(node) === 'none')
-      .filter((node) => !nodeHasDownstreamCategory(context, node, 'security', 3))
+      .filter((node) => !hasInboundVerification(context, node))
       .map((node) =>
         makeFinding({
           rule: webhookSecretRule,
@@ -322,7 +335,7 @@ const hardcodedSecretRule: RuleDefinition = {
   category: 'Security',
   defaultSeverity: 'critical',
   run(context) {
-    return context.originalWorkflow.nodes.flatMap((node) =>
+    const nodeSecrets = context.originalWorkflow.nodes.flatMap((node) =>
       hasKnownSecret(node).map((match) =>
         makeFinding({
           rule: hardcodedSecretRule,
@@ -333,6 +346,23 @@ const hardcodedSecretRule: RuleDefinition = {
         }),
       ),
     )
+
+    const nodeSecretValues = new Set(context.originalWorkflow.nodes.flatMap((node) => hasKnownSecret(node).map((match) => match.value)))
+    const envelopeSecrets = workflowEnvelopeSecretMatches(context).filter((match) => !nodeSecretValues.has(match.value))
+
+    return [
+      ...nodeSecrets,
+      ...envelopeSecrets.map((match) =>
+        makeFinding({
+          rule: hardcodedSecretRule,
+          nodes: [],
+          confidence: 'high',
+          problem: `${match.label} appears in workflow-level export data (${match.redacted}).`,
+          whyItMatters:
+            'Workflow-level export data such as pinned payloads, staticData, and settings travels with the JSON file and can leak secrets when shared.',
+        }),
+      ),
+    ]
   },
 }
 
@@ -445,7 +475,7 @@ const pinnedDataRule: RuleDefinition = {
   title: 'Workflow export contains pinned data',
   plainTitle: 'Saved test data is stored inside this file',
   plainMeaning:
-    'Pinned data is saved into the workflow export. It can include real emails, orders, webhook payloads, or customer records.',
+    'Pinned data is saved into the workflow export. It can include real emails, orders, webhook payloads, customer records, or captured API responses. Known secret-shaped values in pinned payloads are also scanned separately.',
   fixSteps: [
     'Open the named node in n8n and inspect the pinned data.',
     'Unpin the node before publishing or sharing the workflow.',
@@ -768,6 +798,37 @@ function hasUpstreamHubspotDedupe(context: RuleContext, node: N8nNode): boolean 
       looksLikeSearchUpdateOrUpsert(candidate),
     context.maxGraphDepth,
   )
+}
+
+function hasInboundVerification(context: RuleContext, node: N8nNode): boolean {
+  return hasReachableNode(
+    context.workflow,
+    context.graph,
+    node.id,
+    (candidate) =>
+      nodeTypeIs(candidate, 'if', 'switch', 'code', 'function', 'filter') &&
+      nodeTextIncludesAny(candidate, inboundVerificationSignals),
+    3,
+  )
+}
+
+function workflowEnvelopeSecretMatches(context: RuleContext) {
+  const raw = context.originalWorkflow.raw
+  return knownSecretsInText(
+    safeStringify({
+      pinData: raw.pinData,
+      staticData: raw.staticData,
+      settings: raw.settings,
+    }),
+  )
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 function dedupeFindings(findings: RiskFinding[]): RiskFinding[] {

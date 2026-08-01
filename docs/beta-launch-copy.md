@@ -20,7 +20,7 @@ I am testing a public beta for an n8n Workflow Linter:
 
 https://n8n-workflow-linter.vercel.app
 
-It reads exported workflow JSON in the browser and gives a security/reliability report before a workflow is shared or used in production.
+It reads exported workflow JSON in the browser and gives a safe-to-share / production-readiness report before a workflow is shared or used in production.
 
 Current checks include:
 

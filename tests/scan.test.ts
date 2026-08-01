@@ -340,6 +340,120 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('webhook-missing-secret-check')).toBe(false)
   })
 
+  it('does not let outbound HTTP credentials suppress missing webhook authentication', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Unauthenticated webhook to credentialed HTTP read',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Receive Partner Payload',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'partner-payload',
+              authentication: 'none',
+            },
+          },
+          {
+            id: 'http',
+            name: 'Fetch Account Details',
+            type: 'n8n-nodes-base.httpRequest',
+            parameters: {
+              method: 'GET',
+              url: 'https://api.example.com/account',
+              authentication: 'predefinedCredentialType',
+              options: {
+                timeout: 10000,
+              },
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+          },
+        ],
+        connections: {
+          'Receive Partner Payload': {
+            main: [[{ node: 'Fetch Account Details', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'webhook to credentialed http',
+    )
+
+    expect(ids(result).has('webhook-missing-secret-check')).toBe(true)
+  })
+
+  it('does not treat a generic verify node name as webhook signature verification', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Verify address is not auth',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Receive Shipping Payload',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'shipping',
+              authentication: 'none',
+            },
+          },
+          {
+            id: 'code',
+            name: 'Verify shipping address',
+            type: 'n8n-nodes-base.code',
+            parameters: {
+              jsCode: 'return items;',
+            },
+          },
+        ],
+        connections: {
+          'Receive Shipping Payload': {
+            main: [[{ node: 'Verify shipping address', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'generic verify name',
+    )
+
+    expect(ids(result).has('webhook-missing-secret-check')).toBe(true)
+  })
+
+  it('allows reachable inbound signature verification to satisfy webhook auth checks', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Signed webhook',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Receive Signed Payload',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'signed-payload',
+              authentication: 'none',
+            },
+          },
+          {
+            id: 'code',
+            name: 'Validate webhook signature',
+            type: 'n8n-nodes-base.code',
+            parameters: {
+              jsCode:
+                "const signature = $json.headers['x-hub-signature']; const digest = crypto.createHmac('sha256', $env.WEBHOOK_SECRET).update($json.body).digest('hex'); if (signature !== digest) throw new Error('bad signature'); return items;",
+            },
+          },
+        ],
+        connections: {
+          'Receive Signed Payload': {
+            main: [[{ node: 'Validate webhook signature', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'signed webhook',
+    )
+
+    expect(ids(result).has('webhook-missing-secret-check')).toBe(false)
+  })
+
   it('does not let an unconnected HubSpot search suppress create-without-dedupe', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -736,6 +850,71 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(defaults, 'default-node-names')).toHaveLength(1)
   })
 
+  it('flags known secrets inside pinned workflow data as critical hardcoded secrets', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Pinned secret',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Receive Payload',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'payload',
+              authentication: 'headerAuth',
+            },
+          },
+        ],
+        connections: {},
+        pinData: {
+          'Receive Payload': [
+            {
+              json: {
+                email: 'customer@example.com',
+                apiKey: 'sk-proj-abcdefghijklmnopqrstuvwxyz123456',
+              },
+            },
+          ],
+        },
+      }),
+      'pinned secret',
+    )
+
+    expect(ids(result).has('pinned-data')).toBe(true)
+    expect(findingsFor(result, 'hardcoded-secret').some((finding) => finding.nodeNames.length === 0)).toBe(true)
+    expect(getReportVerdict(result).label).toBe('Fix before production use')
+  })
+
+  it('flags known secrets inside workflow staticData and settings', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Envelope secret',
+        nodes: [
+          {
+            id: 'manual',
+            name: 'Manual Trigger',
+            type: 'n8n-nodes-base.manualTrigger',
+            parameters: {},
+          },
+        ],
+        connections: {},
+        staticData: {
+          cachedAccessKey: 'AKIAABCDEFGHIJKLMNOP',
+        },
+        settings: {
+          deploymentToken: 'ghp_123456789012345678901234567890123456',
+        },
+      }),
+      'envelope secret',
+    )
+
+    const hardcoded = findingsFor(result, 'hardcoded-secret')
+
+    expect(hardcoded).toHaveLength(2)
+    expect(hardcoded.every((finding) => finding.nodeNames.length === 0)).toBe(true)
+    expect(getReportVerdict(result).label).toBe('Fix before production use')
+  })
+
   it('groups repeated real credential IDs by credential type and id', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -854,6 +1033,8 @@ describe('scanWorkflowInput', () => {
     const checklist = buildFixChecklist(result)
 
     expect(markdown).toContain('Verdict: Fix before production use')
+    expect(markdown).toContain('Scanned locally in the browser with n8n Workflow Linter')
+    expect(markdown).toContain('https://n8n-workflow-linter.vercel.app')
     expect(markdown).toContain('critical/high findings affect')
     expect(singleBlockingMarkdown).toContain('1 critical/high finding affects')
     expect(markdown).toContain('Affected nodes')

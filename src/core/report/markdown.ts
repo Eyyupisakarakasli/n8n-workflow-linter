@@ -51,6 +51,8 @@ export function buildMarkdownReport(result: ScanResult): string {
     '',
     `Source: ${result.sourceLabel}`,
     `Scanned: ${new Date(result.scannedAt).toLocaleString()}`,
+    'Scanned locally in the browser with n8n Workflow Linter (public beta).',
+    'https://n8n-workflow-linter.vercel.app',
     '',
     '## Summary',
     '',
