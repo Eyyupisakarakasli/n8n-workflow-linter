@@ -1,0 +1,72 @@
+name: Beta feedback
+description: Report a false positive, missed risk, confusing copy, or broken workflow scan.
+title: "[Beta feedback]: "
+labels:
+  - beta-feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste raw workflow JSON if it contains secrets, customer data, pinned data, or private credential IDs.
+        Prefer the exported markdown report and redact node names or values when needed.
+  - type: dropdown
+    id: feedback_type
+    attributes:
+      label: Feedback type
+      options:
+        - False positive
+        - Missed risk
+        - Confusing report copy
+        - Upload or parsing problem
+        - UI problem
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: workflow_kind
+    attributes:
+      label: Workflow kind
+      options:
+        - Real production workflow
+        - Real draft workflow
+        - Intentionally risky test workflow
+        - Clean test workflow
+        - Sample/demo workflow
+    validations:
+      required: true
+  - type: input
+    id: verdict
+    attributes:
+      label: Scanner verdict
+      placeholder: Fix before production use / No production blockers found / All clear
+    validations:
+      required: true
+  - type: textarea
+    id: finding_ids
+    attributes:
+      label: Finding IDs involved
+      description: List rule IDs such as webhook-missing-validation or hubspot-create-without-dedupe.
+      placeholder: |
+        - webhook-missing-validation
+        - http-missing-error-branch
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected result versus actual result
+      placeholder: |
+        Expected:
+        Actual:
+    validations:
+      required: true
+  - type: textarea
+    id: redacted_context
+    attributes:
+      label: Redacted workflow context
+      description: Share only safe node types, safe node names, and connection shape. Do not include secrets or customer payloads.
+      placeholder: |
+        Webhook -> IF validation -> HubSpot search -> IF -> HubSpot update/create
+  - type: textarea
+    id: report_excerpt
+    attributes:
+      label: Redacted report excerpt
+      description: Paste the relevant exported markdown section after removing sensitive data.
