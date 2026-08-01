@@ -389,6 +389,33 @@ textarea:focus {
   background: var(--surface);
 }
 
+.info-toggle {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.info-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.filter-note {
+  margin: -6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .warning-details {
   border-radius: 8px;
   color: var(--amber-strong);
@@ -621,6 +648,10 @@ dd li + li {
   }
 
   .filters select {
+    width: 100%;
+  }
+
+  .info-toggle {
     width: 100%;
   }
 }

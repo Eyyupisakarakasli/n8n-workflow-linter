@@ -1,7 +1,7 @@
-import cleanWebhookHubspot from '../../tests/fixtures/clean-webhook-hubspot-upsert.json?raw'
-import leakyWorkflow from '../../tests/fixtures/leaky-workflow.json?raw'
-import scheduleMinutesIntervalRisk from '../../tests/fixtures/schedule-minutes-interval-risk.json?raw'
-import webhookHubspotRisk from '../../tests/fixtures/risky-webhook-hubspot-create.json?raw'
+import cleanWebhookHubspot from './demo-workflows/clean-webhook-hubspot-upsert.json?raw'
+import leakyWorkflow from './demo-workflows/risky-leaky-workflow.json?raw'
+import scheduleMinutesIntervalRisk from './demo-workflows/risky-schedule-minutes-interval.json?raw'
+import webhookHubspotRisk from './demo-workflows/risky-webhook-hubspot-create.json?raw'
 
 export interface DemoWorkflow {
   id: string
@@ -12,16 +12,16 @@ export interface DemoWorkflow {
 
 export const demoWorkflows: DemoWorkflow[] = [
   {
-    id: 'clean-webhook-hubspot-upsert',
-    name: 'Clean webhook to HubSpot sample',
-    description: 'Authenticated webhook, validation, normalization, HubSpot upsert, and Slack notification.',
-    json: cleanWebhookHubspot,
-  },
-  {
     id: 'webhook-hubspot-risk',
     name: 'Webhook to HubSpot risk',
     description: 'Direct public webhook to HubSpot create, no validation or dedupe.',
     json: webhookHubspotRisk,
+  },
+  {
+    id: 'clean-webhook-hubspot-upsert',
+    name: 'Clean webhook to HubSpot sample',
+    description: 'Authenticated webhook, validation, normalization, HubSpot upsert, and Slack notification.',
+    json: cleanWebhookHubspot,
   },
   {
     id: 'schedule-minutes-interval-risk',

@@ -1,0 +1,212 @@
+{
+  "name": "Clean - Canonical HubSpot Dedupe",
+  "nodes": [
+    {
+      "id": "webhook-dedupe",
+      "name": "Receive Partner Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "partner-lead",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "validate-dedupe",
+      "name": "Validate Lead Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "normalize-dedupe",
+      "name": "Normalize Lead Email And Phone",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [480, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "email",
+              "value": "={{ $json.email.trim().toLowerCase() }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ String($json.phone || '').replace(/[^0-9+]/g, '') }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "search-hubspot",
+      "name": "Search HubSpot Contact By Email",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "search",
+        "filterGroupsUi": {
+          "filterGroupsValues": [
+            {
+              "filtersUi": {
+                "filterValues": [
+                  {
+                    "propertyName": "email",
+                    "operator": "EQ",
+                    "value": "={{ $json.email }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "id": "if-existing-contact",
+      "name": "Contact Already Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [960, 0],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $items().length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "update-contact",
+      "name": "Update Existing HubSpot Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1200, -100],
+      "parameters": {
+        "resource": "contact",
+        "operation": "update",
+        "contactId": "={{ $json.id }}",
+        "additionalFields": {
+          "phone": "={{ $json.phone }}"
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "id": "create-contact-dedupe",
+      "name": "Create HubSpot Contact When Missing",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1200, 120],
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "phone": "={{ $json.phone }}"
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Partner Lead": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Email": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Email And Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Email And Phone": {
+      "main": [
+        [
+          {
+            "node": "Search HubSpot Contact By Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search HubSpot Contact By Email": {
+      "main": [
+        [
+          {
+            "node": "Contact Already Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact Already Exists": {
+      "main": [
+        [
+          {
+            "node": "Update Existing HubSpot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create HubSpot Contact When Missing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

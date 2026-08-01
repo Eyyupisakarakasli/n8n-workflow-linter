@@ -76,6 +76,7 @@ export function scanWorkflowInput(input: string, sourceLabel = 'Workflow JSON'):
     workflow.nodes.map((node) => [node.id, categorizeNode(node)]),
   ) as Record<string, NodeCategory[]>
   const summary = summarizeWorkflow(originalWorkflow, workflow, graph, categoriesByNodeId)
+  const maxGraphDepth = Math.max(25, workflow.nodes.length + 1)
   const findings = runRules({
     workflow,
     originalWorkflow,
@@ -84,6 +85,7 @@ export function scanWorkflowInput(input: string, sourceLabel = 'Workflow JSON'):
     graph,
     categoriesByNodeId,
     summary,
+    maxGraphDepth,
   })
 
   return {

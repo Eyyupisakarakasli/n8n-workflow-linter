@@ -1,0 +1,145 @@
+{
+  "name": "Clean - Webhook to HubSpot Upsert",
+  "nodes": [
+    {
+      "id": "webhook-clean",
+      "name": "Receive Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "lead-intake",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "validate-lead",
+      "name": "Validate Required Lead Fields",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [260, 0],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "normalize-lead",
+      "name": "Normalize Lead Email And Phone",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [520, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "email",
+              "value": "={{ $json.email.trim().toLowerCase() }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ String($json.phone || '').replace(/[^0-9+]/g, '') }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "hubspot-upsert",
+      "name": "Upsert HubSpot Contact By Email",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [780, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "upsert",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "phone": "={{ $json.phone }}"
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "id": "slack-notify",
+      "name": "Notify Sales Slack Channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1040, 0],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#sales",
+        "text": "={{ `Lead upserted: ${$json.email}` }}"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Lead Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Lead Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Email And Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Email And Phone": {
+      "main": [
+        [
+          {
+            "node": "Upsert HubSpot Contact By Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert HubSpot Contact By Email": {
+      "main": [
+        [
+          {
+            "node": "Notify Sales Slack Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

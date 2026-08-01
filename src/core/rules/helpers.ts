@@ -2,11 +2,12 @@ import {
   categorizeNode,
   getHttpMethod,
   getParameterString,
+  nodeTypeIs,
   nodeSearchText,
   type NodeCategory,
 } from '../n8n/categories'
 import { getDownstreamNodes, getReachableNodes, hasReachableNode, hasUpstreamNode } from '../n8n/graph'
-import type { JsonObject, N8nNode } from '../n8n/types'
+import type { ConnectionEdge, JsonObject, N8nNode } from '../n8n/types'
 import type { FindingInput, RiskFinding, RuleContext } from './types'
 
 const codeParameterKeys = new Set(['jsCode', 'pythonCode', 'functionCode', 'code'])
@@ -87,6 +88,18 @@ export interface CredentialIdLeak {
   redacted: string
 }
 
+export interface ReachableWritePath {
+  target: N8nNode
+  nodeIds: string[]
+  edges: ConnectionEdge[]
+  branchChoices: BranchChoice[]
+}
+
+export interface BranchChoice {
+  nodeId: string
+  outputIndex: number
+}
+
 export function makeFinding(input: FindingInput): RiskFinding {
   const nodes = input.nodes ?? (input.node ? [input.node] : [])
 
@@ -130,7 +143,7 @@ export function nodeHasDownstreamCategory(
   context: RuleContext,
   node: N8nNode,
   category: NodeCategory,
-  maxDepth = 25,
+  maxDepth = context.maxGraphDepth,
 ): boolean {
   return hasReachableNode(
     context.workflow,
@@ -145,7 +158,7 @@ export function nodeHasUpstreamCategory(
   context: RuleContext,
   node: N8nNode,
   category: NodeCategory,
-  maxDepth = 25,
+  maxDepth = context.maxGraphDepth,
 ): boolean {
   return hasUpstreamNode(
     context.workflow,
@@ -167,9 +180,108 @@ export function immediateDownstreamHasCategory(
 }
 
 export function reachableWriteNodes(context: RuleContext, node: N8nNode): N8nNode[] {
-  return getReachableNodes(context.workflow, context.graph, node.id).filter((candidate) =>
+  return getReachableNodes(context.workflow, context.graph, node.id, context.maxGraphDepth).filter((candidate) =>
     context.categoriesByNodeId[candidate.id]?.includes('write'),
   )
+}
+
+export function reachableWritePaths(context: RuleContext, node: N8nNode): ReachableWritePath[] {
+  const paths: ReachableWritePath[] = []
+  const queue: Array<{ nodeId: string; nodeIds: string[]; edges: ConnectionEdge[]; branchChoices: BranchChoice[] }> = [
+    { nodeId: node.id, nodeIds: [node.id], edges: [], branchChoices: [] },
+  ]
+  const maxPaths = Math.max(250, context.workflow.nodes.length * 20)
+
+  while (queue.length > 0 && paths.length < maxPaths) {
+    const current = queue.shift()
+    if (!current) continue
+    if (current.edges.length >= context.maxGraphDepth) continue
+
+    for (const edge of context.graph.outgoingById[current.nodeId] ?? []) {
+      if (current.nodeIds.includes(edge.targetId)) continue
+
+      const target = context.workflow.nodeById[edge.targetId]
+      if (!target) continue
+
+      const nextPath = {
+        nodeId: edge.targetId,
+        nodeIds: [...current.nodeIds, edge.targetId],
+        edges: [...current.edges, edge],
+        branchChoices: [...current.branchChoices, ...branchChoiceForEdge(context, edge)],
+      }
+
+      if (context.categoriesByNodeId[target.id]?.includes('write')) {
+        paths.push({
+          target,
+          nodeIds: nextPath.nodeIds,
+          edges: nextPath.edges,
+          branchChoices: nextPath.branchChoices,
+        })
+      }
+
+      queue.push(nextPath)
+    }
+  }
+
+  return paths
+}
+
+export function pathHasCategoryBeforeTarget(
+  context: RuleContext,
+  path: ReachableWritePath,
+  category: NodeCategory,
+): boolean {
+  return path.nodeIds.slice(1, -1).some((nodeId) => context.categoriesByNodeId[nodeId]?.includes(category))
+}
+
+export function pathsAreMutuallyExclusive(left: ReachableWritePath, right: ReachableWritePath): boolean {
+  return left.branchChoices.some((leftChoice) =>
+    right.branchChoices.some(
+      (rightChoice) => leftChoice.nodeId === rightChoice.nodeId && leftChoice.outputIndex !== rightChoice.outputIndex,
+    ),
+  )
+}
+
+export function writeTargetsThatCanRunTogether(paths: ReachableWritePath[]): N8nNode[] {
+  const pathsByTargetId = new Map<string, ReachableWritePath[]>()
+  const targetById = new Map<string, N8nNode>()
+
+  for (const path of paths) {
+    const existing = pathsByTargetId.get(path.target.id) ?? []
+    existing.push(path)
+    pathsByTargetId.set(path.target.id, existing)
+    targetById.set(path.target.id, path.target)
+  }
+
+  const targetIds = [...pathsByTargetId.keys()]
+  const runnableTogether = new Set<string>()
+
+  for (let leftIndex = 0; leftIndex < targetIds.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < targetIds.length; rightIndex += 1) {
+      const leftId = targetIds[leftIndex]
+      const rightId = targetIds[rightIndex]
+      const leftPaths = pathsByTargetId.get(leftId) ?? []
+      const rightPaths = pathsByTargetId.get(rightId) ?? []
+      const canRunTogether = leftPaths.some((leftPath) =>
+        rightPaths.some((rightPath) => !pathsAreMutuallyExclusive(leftPath, rightPath)),
+      )
+
+      if (canRunTogether) {
+        runnableTogether.add(leftId)
+        runnableTogether.add(rightId)
+      }
+    }
+  }
+
+  return [...runnableTogether]
+    .map((targetId) => targetById.get(targetId))
+    .filter((node): node is N8nNode => Boolean(node))
+}
+
+function branchChoiceForEdge(context: RuleContext, edge: ConnectionEdge): BranchChoice[] {
+  const source = context.workflow.nodeById[edge.sourceId]
+  if (!source || !nodeTypeIs(source, 'if', 'switch')) return []
+  return [{ nodeId: source.id, outputIndex: edge.outputIndex }]
 }
 
 export function hasErrorHandling(context: RuleContext, node: N8nNode): boolean {
@@ -415,7 +527,7 @@ export function hasNormalizerUpstream(context: RuleContext, node: N8nNode, field
         context.categoriesByNodeId[candidate.id]?.includes('validation')
       return Boolean(categoryHit) && textIncludesAny(lowerJson(candidate.parameters), signals)
     },
-    8,
+    context.maxGraphDepth,
   )
 }
 

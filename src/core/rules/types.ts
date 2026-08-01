@@ -13,6 +13,7 @@ export interface RuleContext {
   graph: WorkflowGraph
   categoriesByNodeId: Record<string, NodeCategory[]>
   summary: WorkflowSummary
+  maxGraphDepth: number
 }
 
 export type ShareSafetyImpact = 'must-fix' | 'worth-fixing' | 'minor'

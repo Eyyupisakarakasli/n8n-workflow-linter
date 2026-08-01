@@ -18,9 +18,11 @@ Out of scope for the MVP: auth, payment, n8n API connection, team features, mark
 
 ## Public beta checks
 
-- Clean reference workflow should have zero critical/high findings.
+- `tests/fixtures/clean-*.json` workflows should have zero critical/high findings.
+- Clean corpus non-info findings should stay at or below 0.15 findings per total node.
 - Risky reference workflows should catch webhook auth, webhook direct write, HubSpot create without dedupe, HTTP hardening gaps, credential leaks, and pinned data.
 - Workflow JSON stays in the browser. The app does not add analytics, server uploads, or storage.
+- `npm run test:privacy` builds production output and fails if unexpected network, storage, or analytics APIs appear in `dist/`.
 
 ## Development
 
@@ -29,6 +31,7 @@ npm install
 npm run dev
 npm run test
 npm run build
+npm run test:privacy
 ```
 
 Use `npm.cmd` instead of `npm` on Windows PowerShell if script execution policy blocks npm shims.

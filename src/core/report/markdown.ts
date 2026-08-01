@@ -4,7 +4,7 @@ import type { RiskFinding, Severity } from '../rules/types'
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
 
 export interface ReportVerdict {
-  label: 'Do not share this workflow yet' | 'Safe to share, but worth fixing' | 'All clear'
+  label: 'Fix before production use' | 'No production blockers found' | 'All clear'
   detail: string
   tone: 'danger' | 'warning' | 'success'
 }
@@ -16,15 +16,15 @@ export function getReportVerdict(result: ScanResult): ReportVerdict {
 
   if (blockingFindings.length > 0) {
     return {
-      label: 'Do not share this workflow yet',
-      detail: `${blockingFindings.length} critical/high finding needs attention before public sharing.`,
+      label: 'Fix before production use',
+      detail: `${blockingFindings.length} critical/high finding needs attention before production use.`,
       tone: 'danger',
     }
   }
 
-  if (result.findings.length > 0 || result.parserWarnings.length > 0) {
+  if (result.findings.some((finding) => finding.severity !== 'info') || result.parserWarnings.length > 0) {
     return {
-      label: 'Safe to share, but worth fixing',
+      label: 'No production blockers found',
       detail: 'No critical/high findings were found, but there are cleanup or reliability items.',
       tone: 'warning',
     }
@@ -32,7 +32,10 @@ export function getReportVerdict(result: ScanResult): ReportVerdict {
 
   return {
     label: 'All clear',
-    detail: 'No findings or parser warnings were found by the current scanner rules.',
+    detail:
+      result.findings.length > 0
+        ? 'Only info-level hygiene notes were found by the current scanner rules.'
+        : 'No findings or parser warnings were found by the current scanner rules.',
     tone: 'success',
   }
 }

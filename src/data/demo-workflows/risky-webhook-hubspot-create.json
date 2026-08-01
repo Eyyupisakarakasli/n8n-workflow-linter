@@ -1,0 +1,53 @@
+{
+  "name": "Risky - Public Webhook Creates HubSpot Contact",
+  "nodes": [
+    {
+      "id": "webhook-risk",
+      "name": "Test Webhook Lead Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "test-lead-intake",
+        "httpMethod": "POST",
+        "authentication": "none",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "hubspot-create-risk",
+      "name": "Create HubSpot Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [280, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "phone": "={{ $json.phone }}",
+          "firstname": "={{ $json.first_name }}"
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Test Webhook Lead Intake": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

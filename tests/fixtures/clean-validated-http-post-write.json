@@ -1,0 +1,106 @@
+{
+  "name": "Clean - Validated HTTP POST Write",
+  "nodes": [
+    {
+      "id": "webhook-http-post-clean",
+      "name": "Receive Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "orders",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "id": "validate-order",
+      "name": "Validate Order Payload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.orderId }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-post-clean",
+      "name": "Create Order In External API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [480, -80],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.example.com/orders",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "http-post-alert",
+      "name": "Notify Order API Failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [720, 120],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#ops",
+        "text": "Order API failed"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Order Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Order Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Order In External API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Order In External API": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Notify Order API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

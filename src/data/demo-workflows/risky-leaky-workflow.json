@@ -1,0 +1,143 @@
+{
+  "name": "Risky - Secrets And Pinned Data",
+  "nodes": [
+    {
+      "id": "manual-leaky",
+      "name": "Manual Leak Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "code-secret",
+      "name": "Build Customer API Header",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 0],
+      "parameters": {
+        "jsCode": "const apiKey = \"7f3Ka92mFhs82nXqL4vZ\";\nconst safeToken = \"REPLACE_WITH_TOKEN\";\nconst header = \"Bearer Zq7Lp3w9Kd82mVn4Xq7Lp3w\";\nreturn [{ json: { apiKey, header } }];"
+      }
+    },
+    {
+      "id": "http-secret",
+      "name": "Send Customer API Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [560, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?api_key=9Kd82mVn4Xq7Lp3w&limit=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "Qm4Vx82nKd93Lp7wZr51"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $credentials.apiKey }}"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8gccIjdu99aoEr",
+          "name": "Customer API"
+        }
+      }
+    },
+    {
+      "id": "openai-secret",
+      "name": "Call OpenAI With Literal Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [840, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "safe-url",
+      "name": "Fetch Safely",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.example.com/v1/safe?api_key={{ $credentials.apiKey }}",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $credentials.apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Manual Leak Test": {
+      "main": [
+        [
+          {
+            "node": "Build Customer API Header",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Customer API Header": {
+      "main": [
+        [
+          {
+            "node": "Send Customer API Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Customer API Request": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI With Literal Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Send Customer API Request": [
+      {
+        "json": {
+          "email": "customer@example.com",
+          "orderId": "ord_123"
+        }
+      }
+    ]
+  }
+}

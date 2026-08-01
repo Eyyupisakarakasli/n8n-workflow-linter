@@ -1,0 +1,223 @@
+{
+  "name": "Clean - Deep Validation Before Write",
+  "nodes": [
+    {
+      "id": "webhook-deep",
+      "name": "Receive Deep Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "deep-lead",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "id": "map-1",
+      "name": "Map Incoming Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [220, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "rawEmail",
+              "value": "={{ $json.email }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "map-2",
+      "name": "Map Source Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [440, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "source",
+              "value": "={{ $json.source || 'partner' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "map-3",
+      "name": "Normalize Campaign",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [660, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "campaign",
+              "value": "={{ String($json.campaign || '').trim() }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "map-4",
+      "name": "Prepare Lead Owner",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [880, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "owner",
+              "value": "={{ $json.owner || 'sales' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "map-5",
+      "name": "Normalize Contact Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1100, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "email",
+              "value": "={{ $json.rawEmail.trim().toLowerCase() }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ String($json.phone || '').replace(/[^0-9+]/g, '') }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "validate-deep",
+      "name": "Validate Normalized Lead",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 0],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "upsert-deep",
+      "name": "Upsert HubSpot Contact From Deep Path",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [1540, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "upsert",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "phone": "={{ $json.phone }}"
+        }
+      },
+      "credentials": {
+        "hubspotApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "HubSpot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Deep Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Map Incoming Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Incoming Fields": {
+      "main": [
+        [
+          {
+            "node": "Map Source Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Source Metadata": {
+      "main": [
+        [
+          {
+            "node": "Normalize Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Campaign": {
+      "main": [
+        [
+          {
+            "node": "Prepare Lead Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Lead Owner": {
+      "main": [
+        [
+          {
+            "node": "Normalize Contact Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Contact Fields": {
+      "main": [
+        [
+          {
+            "node": "Validate Normalized Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Normalized Lead": {
+      "main": [
+        [
+          {
+            "node": "Upsert HubSpot Contact From Deep Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

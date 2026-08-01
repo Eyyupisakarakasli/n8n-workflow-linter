@@ -36,6 +36,7 @@ function App() {
   const [scanError, setScanError] = useState<ScanError | null>(null)
   const [severityFilter, setSeverityFilter] = useState<'all' | Severity>('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [showInfoFindings, setShowInfoFindings] = useState(false)
   const [reportCopyState, setReportCopyState] = useState<CopyState>('idle')
   const [checklistCopyState, setChecklistCopyState] = useState<CopyState>('idle')
   const [isDragging, setIsDragging] = useState(false)
@@ -61,9 +62,10 @@ function App() {
     return scanResult.findings.filter((finding) => {
       const matchesSeverity = severityFilter === 'all' || finding.severity === severityFilter
       const matchesCategory = categoryFilter === 'all' || finding.category === categoryFilter
-      return matchesSeverity && matchesCategory
+      const matchesInfoVisibility = severityFilter !== 'all' || showInfoFindings || finding.severity !== 'info'
+      return matchesSeverity && matchesCategory && matchesInfoVisibility
     })
-  }, [categoryFilter, scanResult, severityFilter])
+  }, [categoryFilter, scanResult, severityFilter, showInfoFindings])
 
   const categoryOptions = useMemo(() => {
     if (!scanResult) return []
@@ -95,6 +97,7 @@ function App() {
     setScanError(null)
     setSeverityFilter('all')
     setCategoryFilter('all')
+    setShowInfoFindings(false)
     setReportCopyState('idle')
     setChecklistCopyState('idle')
 
@@ -317,10 +320,12 @@ function App() {
               categoryOptions={categoryOptions}
               severityFilter={severityFilter}
               categoryFilter={categoryFilter}
+              showInfoFindings={showInfoFindings}
               reportCopyState={reportCopyState}
               checklistCopyState={checklistCopyState}
               onSeverityChange={setSeverityFilter}
               onCategoryChange={setCategoryFilter}
+              onShowInfoChange={setShowInfoFindings}
               onCopyReport={() => void copyText(buildMarkdownReport(scanResult), 'report')}
               onCopyChecklist={() => void copyText(buildFixChecklist(scanResult), 'checklist')}
               onDownloadReport={() => downloadReport(scanResult)}
@@ -370,10 +375,12 @@ interface ReportViewProps {
   categoryOptions: string[]
   severityFilter: 'all' | Severity
   categoryFilter: string
+  showInfoFindings: boolean
   reportCopyState: CopyState
   checklistCopyState: CopyState
   onSeverityChange: (severity: 'all' | Severity) => void
   onCategoryChange: (category: string) => void
+  onShowInfoChange: (showInfo: boolean) => void
   onCopyReport: () => void
   onCopyChecklist: () => void
   onDownloadReport: () => void
@@ -385,10 +392,12 @@ function ReportView({
   categoryOptions,
   severityFilter,
   categoryFilter,
+  showInfoFindings,
   reportCopyState,
   checklistCopyState,
   onSeverityChange,
   onCategoryChange,
+  onShowInfoChange,
   onCopyReport,
   onCopyChecklist,
   onDownloadReport,
@@ -397,6 +406,8 @@ function ReportView({
   const highCount = result.findings.filter(
     (finding) => finding.severity === 'critical' || finding.severity === 'high',
   ).length
+  const infoCount = result.findings.filter((finding) => finding.severity === 'info').length
+  const hiddenInfoCount = severityFilter === 'all' && !showInfoFindings ? infoCount : 0
   const groupedFindings = severityOrder
     .map((severity) => ({
       severity,
@@ -478,7 +489,21 @@ function ReportView({
             </option>
           ))}
         </select>
+        {infoCount > 0 ? (
+          <label className="info-toggle">
+            <input
+              type="checkbox"
+              checked={showInfoFindings}
+              onChange={(event) => onShowInfoChange(event.target.checked)}
+            />
+            <span>Show info ({infoCount})</span>
+          </label>
+        ) : null}
       </div>
+
+      {hiddenInfoCount > 0 ? (
+        <p className="filter-note">{hiddenInfoCount} info-level hygiene finding hidden by default.</p>
+      ) : null}
 
       {result.parserWarnings.length > 0 ? (
         <details className="warning-details">
@@ -512,7 +537,6 @@ function ReportView({
                   <div className="finding-topline">
                     <span className={`severity ${finding.severity}`}>{titleCase(finding.severity)}</span>
                     <span>{finding.category}</span>
-                    <span>{titleCase(finding.confidence)} confidence</span>
                   </div>
                   <h4>{finding.plainTitle}</h4>
                   <p className="node-line">{finding.nodeNames.join(', ') || 'Workflow level'}</p>

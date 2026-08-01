@@ -21,9 +21,11 @@ import {
   nodeHasDownstreamCategory,
   nodeTextIncludesAny,
   nodesInCategory,
-  reachableWriteNodes,
+  pathHasCategoryBeforeTarget,
+  reachableWritePaths,
   scheduleLooksFrequent,
   urlSecretMatches,
+  writeTargetsThatCanRunTogether,
 } from './helpers'
 import type { RiskFinding, RuleContext, RuleDefinition } from './types'
 
@@ -43,8 +45,9 @@ const webhookValidationRule: RuleDefinition = {
   defaultSeverity: 'high',
   run(context) {
     return nodesInCategory(context, 'webhook')
-      .filter((node) => nodeHasDownstreamCategory(context, node, 'write', 25))
-      .filter((node) => !nodeHasDownstreamCategory(context, node, 'validation', 5))
+      .filter((node) =>
+        reachableWritePaths(context, node).some((path) => !pathHasCategoryBeforeTarget(context, path, 'validation')),
+      )
       .map((node) =>
         makeFinding({
           rule: webhookValidationRule,
@@ -514,7 +517,7 @@ const phoneNormalizeRule: RuleDefinition = {
   title: 'Phone may not be normalized before HubSpot create',
   plainTitle: 'Phone is written to HubSpot without clear normalization first',
   plainMeaning:
-    'No upstream step clearly normalizes phone numbers before HubSpot create. The finding is lower confidence because phone formats vary by market.',
+    'No upstream step clearly normalizes phone numbers before HubSpot create. Phone formats vary by market, so treat this as a conservative hygiene warning.',
   fixSteps: [
     'Normalize phone numbers to one expected format before writing them.',
     'Strip obvious formatting noise such as spaces, brackets, and dashes.',
@@ -563,8 +566,10 @@ const duplicateWritePathRule: RuleDefinition = {
     return triggerNodes
       .map((node) => ({
         node,
-        writes: reachableWriteNodes(context, node).filter(
-          (candidate) => !context.categoriesByNodeId[candidate.id]?.includes('notification'),
+        writes: writeTargetsThatCanRunTogether(
+          reachableWritePaths(context, node).filter(
+            (path) => !context.categoriesByNodeId[path.target.id]?.includes('notification'),
+          ),
         ),
       }))
       .filter(({ writes }) => writes.length > 1)
@@ -663,15 +668,15 @@ const defaultNodeNamesRule: RuleDefinition = {
     const defaults = context.workflow.nodes.filter(isDefaultNodeName)
     if (defaults.length < 3) return []
 
-    return defaults.map((node) =>
+    return [
       makeFinding({
         rule: defaultNodeNamesRule,
-        node,
+        nodes: defaults,
         confidence: 'high',
         problem: `${defaults.length} active nodes still use default n8n names.`,
         whyItMatters: 'Default names make debugging, support, and handoff much harder after the workflow grows.',
       }),
-    )
+    ]
   },
 }
 
@@ -690,15 +695,17 @@ const disabledNodeRule: RuleDefinition = {
   category: 'Hygiene',
   defaultSeverity: 'info',
   run(context) {
-    return context.disabledNodes.map((node) =>
+    if (context.disabledNodes.length === 0) return []
+
+    return [
       makeFinding({
         rule: disabledNodeRule,
-        node,
+        nodes: context.disabledNodes,
         confidence: 'high',
-        problem: 'This node is disabled and was skipped by active production risk checks.',
-        whyItMatters: 'Future editors may not know whether the node is intentionally disabled or accidentally left behind.',
+        problem: `${context.disabledNodes.length} disabled node(s) were skipped by active production risk checks.`,
+        whyItMatters: 'Future editors may not know whether disabled nodes are intentional or accidentally left behind.',
       }),
-    )
+    ]
   },
 }
 
@@ -740,7 +747,7 @@ function hasUpstreamHubspotDedupe(context: RuleContext, node: N8nNode): boolean 
     (candidate) =>
       context.categoriesByNodeId[candidate.id]?.includes('hubspot') === true &&
       looksLikeSearchUpdateOrUpsert(candidate),
-    12,
+    context.maxGraphDepth,
   )
 }
 
