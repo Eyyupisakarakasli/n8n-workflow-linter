@@ -1,7 +1,7 @@
 import cleanWebhookHubspot from './demo-workflows/clean-webhook-hubspot-upsert.json?raw'
 import leakyWorkflow from './demo-workflows/risky-leaky-workflow.json?raw'
 import scheduleMinutesIntervalRisk from './demo-workflows/risky-schedule-minutes-interval.json?raw'
-import webhookHubspotRisk from './demo-workflows/risky-webhook-hubspot-create.json?raw'
+import webhookHubspotRisk from './demo-workflows/risky-webhook-hubspot-upsert.json?raw'
 
 export interface DemoWorkflow {
   id: string

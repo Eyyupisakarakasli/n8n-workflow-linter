@@ -342,28 +342,45 @@ const externalActionErrorRule: RuleDefinition = {
   category: 'Reliability',
   defaultSeverity: 'high',
   run(context) {
+    const hasWorkflowFallback = workflowHasErrorWorkflow(context)
+
     return context.workflow.nodes
       .filter((node) => isNonHttpExternalActionNode(context, node))
       .filter((node) => !hasErrorHandling(context, node))
       .map((node) => {
+        const isWriteNode = context.categoriesByNodeId[node.id]?.includes('write') ?? false
         const isHubSpotContactWrite = looksLikeHubSpotContactWrite(node)
+        const severity = isWriteNode && !hasWorkflowFallback ? 'high' : 'medium'
+        const hasOnlyWorkflowFallback = !hasErrorHandling(context, node) && hasWorkflowFallback
 
         return makeFinding({
           rule: externalActionErrorRule,
           node,
+          severity,
           confidence: 'high',
+          shareSafetyImpact: severity === 'high' ? 'must-fix' : 'worth-fixing',
           plainTitle: isHubSpotContactWrite
-            ? 'HubSpot contact write can fail without a recovery path'
+            ? severity === 'high'
+              ? 'HubSpot contact write can fail without a recovery path'
+              : 'HubSpot contact write has no local recovery path'
             : undefined,
           plainMeaning: isHubSpotContactWrite
-            ? 'This HubSpot contact write has no error output branch or equivalent error routing. Conflicts, validation failures, or API errors can stop the workflow instead of being handled deliberately.'
+            ? hasOnlyWorkflowFallback
+              ? 'This HubSpot contact write has no local error output branch or onError routing, but the workflow has a global error workflow fallback.'
+              : 'This HubSpot contact write has no error output branch or equivalent error routing. Conflicts, validation failures, or API errors can stop the workflow instead of being handled deliberately.'
             : undefined,
           problem: isHubSpotContactWrite
-            ? 'This HubSpot contact write has no error output branch or onError recovery setting.'
-            : 'This external app node has no error output branch or onError recovery setting.',
+            ? hasOnlyWorkflowFallback
+              ? 'This HubSpot contact write has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
+              : 'This HubSpot contact write has no error output branch or onError recovery setting.'
+            : hasOnlyWorkflowFallback
+              ? 'This external app node has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
+              : 'This external app node has no error output branch or onError recovery setting.',
           whyItMatters: isHubSpotContactWrite
             ? 'HubSpot contact writes can fail on conflicts, validation errors, credentials, or rate limits. A replayed webhook should produce a controlled branch, not an unexplained failed execution.'
-            : 'External API failures are normal in production. Without a recovery path, the failed node can stop the workflow with no local handling.',
+            : isWriteNode
+              ? 'External API write failures are normal in production. Without a recovery path, the failed node can stop the workflow with no local handling.'
+              : 'Read-only app calls can still fail or return partial data, but they are usually worth fixing rather than production blockers when they do not perform writes.',
         })
       })
   },
@@ -693,16 +710,20 @@ const hubspotEmailRequiredRule: RuleDefinition = {
     return nodesInCategory(context, 'hubspot')
       .filter((node) => looksLikeHubSpotContactWrite(node))
       .filter((node) => !hasHubSpotEmailInput(node) || !hasRequiredFieldValidationUpstream(context, node, 'email'))
-      .map((node) =>
-        makeFinding({
+      .map((node) => {
+        const hasEmailInput = hasHubSpotEmailInput(node)
+
+        return makeFinding({
           rule: hubspotEmailRequiredRule,
           node,
           confidence: 'high',
-          problem: 'No reachable upstream check clearly requires email before this HubSpot contact write.',
+          problem: hasEmailInput
+            ? 'No reachable upstream check clearly requires email before this HubSpot contact write.'
+            : 'This HubSpot contact write has no email input configured.',
           whyItMatters:
             'Same-email contacts are normally deduped by HubSpot. Blank or missing-email contacts are where replayed webhooks can create real duplicate CRM noise.',
-        }),
-      )
+        })
+      })
   },
 }
 

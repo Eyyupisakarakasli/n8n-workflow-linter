@@ -129,7 +129,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('write')
   }
 
-  if (suffix === 'hubspot' && !operation && legacyHubSpotNameLooksWrite(node.name)) {
+  if (suffix === 'hubspot' && !operation && (hubSpotContactDefaultLooksWrite(node) || legacyHubSpotNameLooksWrite(node.name))) {
     categories.add('write')
   }
 
@@ -170,6 +170,19 @@ export function isReadOperation(operation: string): boolean {
 
 export function legacyHubSpotNameLooksWrite(name: string): boolean {
   return /\b(create|add|update|upsert|insert|delete)\b/i.test(name)
+}
+
+export function hubSpotContactDefaultLooksWrite(node: N8nNode): boolean {
+  if (!nodeTypeIs(node, 'hubspot')) return false
+
+  const operation = getParameterString(node, 'operation').toLowerCase()
+  if (operation) return false
+
+  const resource = getParameterString(node, 'resource').toLowerCase()
+  const email = getParameterString(node, 'email').trim()
+  const text = nodeSearchText(node)
+
+  return resource.includes('contact') || email.length > 0 || text.includes('contact') || text.includes('contacts')
 }
 
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {

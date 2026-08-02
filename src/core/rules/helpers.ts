@@ -3,6 +3,7 @@ import {
   getHttpMethod,
   getNodeTypeSuffix,
   getParameterString,
+  hubSpotContactDefaultLooksWrite,
   nodeTypeIs,
   nodeSearchText,
   type NodeCategory,
@@ -520,11 +521,15 @@ export function looksLikeHubSpotContactWrite(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase()
   const resource = getParameterString(node, 'resource').toLowerCase()
   const text = nodeSearchText(node)
-  const contactContext = resource.includes('contact') || text.includes('contact') || text.includes('contacts')
+  const contactContext =
+    resource.includes('contact') ||
+    getParameterString(node, 'email').trim().length > 0 ||
+    text.includes('contact') ||
+    text.includes('contacts')
   const explicitWrite = ['create', 'upsert'].includes(operation)
-  const legacyCreateName = !operation && nodeTypeIs(node, 'hubspot') && /\b(create|add)\b/i.test(node.name)
+  const impliedDefaultUpsert = hubSpotContactDefaultLooksWrite(node)
 
-  return text.includes('hubspot') && contactContext && (explicitWrite || legacyCreateName)
+  return nodeTypeIs(node, 'hubspot') && contactContext && (explicitWrite || impliedDefaultUpsert)
 }
 
 export function hasHubSpotEmailInput(node: N8nNode): boolean {

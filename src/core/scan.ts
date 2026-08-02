@@ -195,7 +195,7 @@ function groupFindings(findings: RiskFinding[]): RiskFinding[] {
     }
 
     if (appRollupRuleIds.has(finding.ruleId)) {
-      const key = `${finding.ruleId}:${finding.severity}`
+      const key = `${finding.ruleId}:${finding.severity}:${appRollupFlavor(finding)}`
       const group = appCandidates.get(key) ?? []
       group.push(finding)
       appCandidates.set(key, group)
@@ -288,7 +288,7 @@ function groupAppFindings(findings: RiskFinding[]): RiskFinding {
   const nodeIds = unique(findings.flatMap((finding) => finding.nodeIds))
   const nodeNames = unique(findings.flatMap((finding) => finding.nodeNames))
   const count = nodeIds.length
-  const copy = appRollupCopy(representative.ruleId, count)
+  const copy = appRollupCopy(representative.ruleId, count, representative.severity, representative.problem)
 
   return {
     ...representative,
@@ -401,21 +401,32 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
   }
 }
 
-function appRollupCopy(ruleId: string, count: number) {
+function appRollupCopy(ruleId: string, count: number, severity: Severity, representativeProblem: string) {
   if (ruleId === 'external-action-missing-error-handling') {
+    const isBlocking = severity === 'critical' || severity === 'high'
+    const hasWorkflowFallback = representativeProblem.includes('settings.errorWorkflow is configured')
+
     return {
       title: 'External app nodes have no error handling',
-      plainTitle: `${count} external app ${pluralize(count, 'node')} can fail without a recovery path`,
-      plainMeaning:
-        'These non-HTTP app nodes call services such as HubSpot, Slack, or databases, but do not show an error output branch or equivalent onError routing.',
+      plainTitle: isBlocking
+        ? `${count} external app ${pluralize(count, 'node')} can fail without a recovery path`
+        : `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no local error route`,
+      plainMeaning: isBlocking
+        ? 'These non-HTTP app nodes call services such as HubSpot, Slack, or databases, but do not show an error output branch or equivalent onError routing.'
+        : 'These non-HTTP app nodes call external systems and have no local error output branch or onError routing. Review them, especially when the workflow-level error workflow is the only fallback.',
       fixSteps: [
         'Add error output or onError recovery for each listed app node.',
         'Route failures to Slack, email, a log, or a dead-letter path.',
         'Use a workflow-level error workflow as the fallback for failures not handled locally.',
       ],
-      problem: `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no error output branch or onError recovery setting.`,
-      whyItMatters:
-        'App nodes are API calls too. HubSpot, Slack, Postgres, and similar services can fail, rate-limit, or reject data during production runs.',
+      problem: hasWorkflowFallback
+        ? `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.`
+        : `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no local error output branch or onError recovery setting.`,
+      whyItMatters: isBlocking
+        ? 'App nodes are API calls too. HubSpot, Slack, Postgres, and similar services can fail, rate-limit, or reject data during production runs.'
+        : hasWorkflowFallback
+          ? 'A workflow-level error workflow is a useful fallback, but local error branches still make expected API failures easier to route, retry, or ignore intentionally.'
+        : 'For read-only calls or workflows with a global error workflow, this is still useful hardening but should not dominate the production verdict by itself.',
     }
   }
 
@@ -433,6 +444,11 @@ function appRollupCopy(ruleId: string, count: number) {
     whyItMatters:
       'External services commonly fail transiently. A consistent retry policy reduces avoidable failed executions and manual reruns.',
   }
+}
+
+function appRollupFlavor(finding: RiskFinding): string {
+  if (finding.ruleId !== 'external-action-missing-error-handling') return 'default'
+  return finding.problem.includes('settings.errorWorkflow is configured') ? 'workflow-fallback' : 'default'
 }
 
 function shareImpactForSeverity(severity: Severity): ShareSafetyImpact {
