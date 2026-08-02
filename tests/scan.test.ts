@@ -166,7 +166,7 @@ describe('scanWorkflowInput', () => {
   })
 
   it('groups the public webhook to HubSpot blocker path while keeping the real HubSpot risks', () => {
-    const result = scanWorkflowInput(fixture('risky-webhook-hubspot-create.json'), 'risk')
+    const result = scanWorkflowInput(fixture('risky-webhook-hubspot-upsert.json'), 'risk')
     const ruleIds = ids(result)
     const webhookGroup = findingsFor(result, 'webhook-production-exposure')[0]
 
@@ -575,6 +575,86 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
   })
 
+  it('detects real-export HubSpot contact upserts when operation is omitted', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Real export default HubSpot upsert',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Lead Intake',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'lead',
+              authentication: 'headerAuth',
+            },
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot2',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              email: '={{ $json.email }}',
+            },
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+        ],
+        connections: {
+          'Lead Intake': {
+            main: [[{ node: 'HubSpot2', type: 'main', index: 0 }]],
+          },
+        },
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'real hubspot default upsert',
+    )
+
+    expect(result.summary.crmWriteNodes).toBe(1)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    expect(findingsFor(result, 'hubspot-contact-email-not-required')[0].problem).toContain(
+      'requires email before this HubSpot contact write',
+    )
+  })
+
+  it('reports missing HubSpot email input distinctly from missing validation', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'HubSpot contact upsert without email mapping',
+        nodes: [
+          {
+            id: 'hubspot',
+            name: 'Update HubSpot',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+            },
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+        ],
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'hubspot missing email input',
+    )
+
+    expect(result.summary.crmWriteNodes).toBe(1)
+    expect(findingsFor(result, 'hubspot-contact-email-not-required')[0].problem).toContain('no email input')
+  })
+
   it('allows upstream email validation to satisfy legacy HubSpot contact writes', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -607,6 +687,7 @@ describe('scanWorkflowInput', () => {
             type: 'n8n-nodes-base.hubspot',
             parameters: {
               resource: 'contact',
+              operation: 'search',
               email: '={{ $json.email }}',
             },
             alwaysOutputData: true,
@@ -867,7 +948,106 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
     expect(ids(result).has('external-action-missing-retry')).toBe(true)
     expect(ids(result).has('external-action-missing-error-handling')).toBe(true)
+    expect(findingsFor(result, 'external-action-missing-error-handling')[0].severity).toBe('high')
     expect(ids(result).has('workflow-missing-error-workflow')).toBe(true)
+  })
+
+  it('keeps read-only external app error handling gaps at medium severity', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Read-only Gmail sync without local error route',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Daily digest',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            parameters: {},
+          },
+          {
+            id: 'gmail',
+            name: 'Get Gmail Messages',
+            type: 'n8n-nodes-base.gmail',
+            parameters: {
+              operation: 'getAll',
+            },
+            credentials: {
+              gmailOAuth2: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'Gmail account',
+              },
+            },
+          },
+        ],
+        connections: {
+          'Daily digest': {
+            main: [[{ node: 'Get Gmail Messages', type: 'main', index: 0 }]],
+          },
+        },
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'read-only app reliability',
+    )
+
+    const errorFinding = findingsFor(result, 'external-action-missing-error-handling')[0]
+
+    expect(errorFinding.severity).toBe('medium')
+    expect(highOrCriticalCount(result)).toBe(0)
+    expect(getReportVerdict(result).label).toBe('No production blockers found')
+  })
+
+  it('demotes external write node local error gaps when a workflow error workflow exists', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Slack write with global error workflow',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Daily notification',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            parameters: {},
+          },
+          {
+            id: 'slack',
+            name: 'Notify Team',
+            type: 'n8n-nodes-base.slack',
+            parameters: {
+              operation: 'send',
+              text: '={{ $json.summary }}',
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            credentials: {
+              slackApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'Slack account',
+              },
+            },
+          },
+        ],
+        connections: {
+          'Daily notification': {
+            main: [[{ node: 'Notify Team', type: 'main', index: 0 }]],
+          },
+        },
+        settings: {
+          executionOrder: 'v1',
+          errorWorkflow: '42',
+        },
+      }),
+      'global error workflow fallback',
+    )
+
+    const errorFinding = findingsFor(result, 'external-action-missing-error-handling')[0]
+
+    expect(result.summary.workflowHasErrorWorkflow).toBe(true)
+    expect(ids(result).has('workflow-missing-error-workflow')).toBe(false)
+    expect(errorFinding.severity).toBe('medium')
+    expect(errorFinding.shareSafetyImpact).toBe('worth-fixing')
+    expect(errorFinding.problem).toContain('settings.errorWorkflow is configured')
+    expect(highOrCriticalCount(result)).toBe(0)
+    expect(getReportVerdict(result).label).toBe('No production blockers found')
   })
 
   it('flags zero-row search branches and legacy execution order separately', () => {
@@ -1184,7 +1364,7 @@ describe('scanWorkflowInput', () => {
   })
 
   it('exports markdown with verdict and fix steps', () => {
-    const result = scanWorkflowInput(fixture('risky-webhook-hubspot-create.json'), 'risk')
+    const result = scanWorkflowInput(fixture('risky-webhook-hubspot-upsert.json'), 'risk')
     const markdown = buildMarkdownReport(result)
     const singleBlockingMarkdown = buildMarkdownReport({
       ...result,
