@@ -36,7 +36,7 @@ export interface RiskFinding {
   confidence: Confidence
   affectedNodeCount?: number
   groupedRuleIds?: string[]
-  groupKind?: 'http-hardening' | 'credential-leak'
+  groupKind?: 'http-hardening' | 'credential-leak' | 'webhook-exposure' | 'app-hardening'
 }
 
 export interface RuleDefinition {

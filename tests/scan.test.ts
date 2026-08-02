@@ -165,14 +165,25 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('duplicate-write-path')).toBe(false)
   })
 
-  it('flags the public webhook to HubSpot create blocker path', () => {
+  it('groups the public webhook to HubSpot blocker path while keeping the real HubSpot risks', () => {
     const result = scanWorkflowInput(fixture('risky-webhook-hubspot-create.json'), 'risk')
     const ruleIds = ids(result)
+    const webhookGroup = findingsFor(result, 'webhook-production-exposure')[0]
 
-    expect(ruleIds.has('webhook-missing-secret-check')).toBe(true)
-    expect(ruleIds.has('webhook-direct-write')).toBe(true)
-    expect(ruleIds.has('webhook-missing-validation')).toBe(true)
-    expect(ruleIds.has('hubspot-create-without-dedupe')).toBe(true)
+    expect(ruleIds.has('webhook-production-exposure')).toBe(true)
+    expect(webhookGroup.groupedRuleIds?.sort()).toEqual([
+      'webhook-direct-write',
+      'webhook-missing-secret-check',
+      'webhook-missing-validation',
+    ])
+    expect(ruleIds.has('webhook-missing-secret-check')).toBe(false)
+    expect(ruleIds.has('webhook-direct-write')).toBe(false)
+    expect(ruleIds.has('webhook-missing-validation')).toBe(false)
+    expect(ruleIds.has('hubspot-contact-email-not-required')).toBe(true)
+    expect(ruleIds.has('external-action-missing-error-handling')).toBe(true)
+    expect(ruleIds.has('external-action-missing-retry')).toBe(true)
+    expect(ruleIds.has('workflow-missing-error-workflow')).toBe(true)
+    expect(findingsFor(result, 'webhook-test-prod-confusion')[0].severity).toBe('low')
   })
 
   it('detects real n8n minutesInterval schedules and missing HTTP hardening', () => {
@@ -454,7 +465,7 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('webhook-missing-secret-check')).toBe(false)
   })
 
-  it('does not let an unconnected HubSpot search suppress create-without-dedupe', () => {
+  it('does not let an unconnected HubSpot search suppress missing email validation', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
         name: 'Disconnected HubSpot search',
@@ -505,13 +516,13 @@ describe('scanWorkflowInput', () => {
       'disconnected search',
     )
 
-    expect(ids(result).has('hubspot-create-without-dedupe')).toBe(true)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
   })
 
-  it('detects legacy HubSpot contact create exports without an operation field', () => {
+  it('detects legacy HubSpot contact writes without required email validation', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
-        name: 'Legacy Typeform to HubSpot create',
+        name: 'Legacy Typeform to HubSpot contact write',
         nodes: [
           {
             name: 'Typeform Trigger',
@@ -561,13 +572,13 @@ describe('scanWorkflowInput', () => {
     )
 
     expect(result.summary.crmWriteNodes).toBe(1)
-    expect(ids(result).has('hubspot-create-without-dedupe')).toBe(true)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
   })
 
-  it('allows legacy HubSpot find nodes to satisfy upstream dedupe before create', () => {
+  it('allows upstream email validation to satisfy legacy HubSpot contact writes', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
-        name: 'Legacy HubSpot find then create',
+        name: 'Legacy HubSpot validate then create',
         nodes: [
           {
             name: 'Receive Lead',
@@ -578,12 +589,27 @@ describe('scanWorkflowInput', () => {
             },
           },
           {
+            name: 'Validate Lead Email',
+            type: 'n8n-nodes-base.if',
+            parameters: {
+              conditions: {
+                string: [
+                  {
+                    value1: '={{ $json.email }}',
+                    operation: 'isNotEmpty',
+                  },
+                ],
+              },
+            },
+          },
+          {
             name: 'Find HubSpot Contact',
             type: 'n8n-nodes-base.hubspot',
             parameters: {
               resource: 'contact',
               email: '={{ $json.email }}',
             },
+            alwaysOutputData: true,
             typeVersion: 1,
           },
           {
@@ -598,6 +624,9 @@ describe('scanWorkflowInput', () => {
         ],
         connections: {
           'Receive Lead': {
+            main: [[{ node: 'Validate Lead Email', type: 'main', index: 0 }]],
+          },
+          'Validate Lead Email': {
             main: [[{ node: 'Find HubSpot Contact', type: 'main', index: 0 }]],
           },
           'Find HubSpot Contact': {
@@ -605,18 +634,20 @@ describe('scanWorkflowInput', () => {
           },
         },
       }),
-      'legacy hubspot find',
+      'legacy hubspot validate',
     )
 
-    expect(ids(result).has('hubspot-create-without-dedupe')).toBe(false)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
   })
 
-  it('does not flag canonical HubSpot search to IF to update/create as duplicate writes or missing dedupe', () => {
+  it('does not flag canonical HubSpot search to IF to update/upsert as duplicate writes or missing email validation', () => {
     const result = scanWorkflowInput(fixture('clean-canonical-hubspot-dedupe.json'), 'canonical dedupe')
     const ruleIds = ids(result)
 
     expect(ruleIds.has('duplicate-write-path')).toBe(false)
-    expect(ruleIds.has('hubspot-create-without-dedupe')).toBe(false)
+    expect(ruleIds.has('hubspot-contact-email-not-required')).toBe(false)
+    expect(ruleIds.has('external-action-missing-error-handling')).toBe(false)
+    expect(ruleIds.has('external-action-missing-retry')).toBe(false)
   })
 
   it('keeps deep validation before a write path from becoming a webhook validation false positive', () => {
@@ -767,6 +798,130 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(writeResult, 'http-missing-error-branch')[0].severity).toBe('high')
   })
 
+  it('flags retry, error handling, and workflow error gaps on app nodes, not only HTTP Request nodes', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Validated HubSpot app node without reliability settings',
+        nodes: [
+          {
+            id: 'webhook',
+            name: 'Receive Lead',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {
+              path: 'lead',
+              authentication: 'headerAuth',
+            },
+          },
+          {
+            id: 'validate',
+            name: 'Validate Lead Email',
+            type: 'n8n-nodes-base.if',
+            parameters: {
+              conditions: {
+                string: [
+                  {
+                    value1: '={{ $json.email }}',
+                    operation: 'isNotEmpty',
+                  },
+                ],
+              },
+            },
+          },
+          {
+            id: 'hubspot',
+            name: 'Create or Update HubSpot Contact',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              operation: 'upsert',
+              email: '={{ $json.email }}',
+            },
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+        ],
+        connections: {
+          'Receive Lead': {
+            main: [[{ node: 'Validate Lead Email', type: 'main', index: 0 }]],
+          },
+          'Validate Lead Email': {
+            main: [[{ node: 'Create or Update HubSpot Contact', type: 'main', index: 0 }]],
+          },
+        },
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'app reliability',
+    )
+
+    expect(result.summary.httpNodes).toBe(0)
+    expect(result.summary.externalActionNodes).toBe(1)
+    expect(result.summary.nodesMissingRetry).toBe(1)
+    expect(result.summary.nodesMissingErrorHandling).toBe(1)
+    expect(result.summary.workflowHasErrorWorkflow).toBe(false)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+    expect(ids(result).has('external-action-missing-retry')).toBe(true)
+    expect(ids(result).has('external-action-missing-error-handling')).toBe(true)
+    expect(ids(result).has('workflow-missing-error-workflow')).toBe(true)
+  })
+
+  it('flags zero-row search branches and legacy execution order separately', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Search branch without always output data',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Daily sync',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            parameters: {},
+          },
+          {
+            id: 'search',
+            name: 'Search HubSpot Contact',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contact',
+              operation: 'search',
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+          {
+            id: 'branch',
+            name: 'Contact Found',
+            type: 'n8n-nodes-base.if',
+            parameters: {},
+          },
+        ],
+        connections: {
+          'Daily sync': {
+            main: [[{ node: 'Search HubSpot Contact', type: 'main', index: 0 }]],
+          },
+          'Search HubSpot Contact': {
+            main: [[{ node: 'Contact Found', type: 'main', index: 0 }]],
+          },
+        },
+      }),
+      'zero-row branch',
+    )
+
+    expect(ids(result).has('zero-row-node-may-stop-branch')).toBe(true)
+    expect(ids(result).has('legacy-execution-order')).toBe(true)
+  })
+
   it('still flags duplicate persistent HTTP record writes in the same branch', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -829,10 +984,11 @@ describe('scanWorkflowInput', () => {
 
   it('counts HTTP POST as a write path after a webhook', () => {
     const result = scanWorkflowInput(fixture('risky-http-post-write.json'), 'http post')
+    const webhookGroup = findingsFor(result, 'webhook-production-exposure')[0]
 
     expect(result.summary.httpNodes).toBe(1)
-    expect(ids(result).has('webhook-direct-write')).toBe(true)
-    expect(ids(result).has('webhook-missing-validation')).toBe(true)
+    expect(ids(result).has('webhook-production-exposure')).toBe(true)
+    expect(webhookGroup.groupedRuleIds).toEqual(['webhook-missing-validation', 'webhook-direct-write'])
   })
 
   it('flags credential IDs, pinned data, known secrets, embedded secrets, URL credentials, and default names', () => {
@@ -997,7 +1153,11 @@ describe('scanWorkflowInput', () => {
     expect(demoWorkflows[0]?.id).toBe('webhook-hubspot-risk')
 
     const expectedRulesByDemoId: Record<string, string[]> = {
-      'webhook-hubspot-risk': ['webhook-missing-secret-check', 'hubspot-create-without-dedupe'],
+      'webhook-hubspot-risk': [
+        'webhook-production-exposure',
+        'hubspot-contact-email-not-required',
+        'external-action-missing-error-handling',
+      ],
       'clean-webhook-hubspot-upsert': [],
       'schedule-minutes-interval-risk': ['frequent-schedule-trigger'],
       'leaky-workflow': [

@@ -82,7 +82,12 @@
           "id": "REPLACE_WITH_CREDENTIAL_ID",
           "name": "HubSpot account"
         }
-      }
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
     },
     {
       "id": "if-existing-contact",
@@ -121,17 +126,21 @@
           "id": "REPLACE_WITH_CREDENTIAL_ID",
           "name": "HubSpot account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
     },
     {
-      "id": "create-contact-dedupe",
-      "name": "Create HubSpot Contact When Missing",
+      "id": "upsert-contact-dedupe",
+      "name": "Create or Update HubSpot Contact When Missing",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
       "position": [1200, 120],
       "parameters": {
         "resource": "contact",
-        "operation": "create",
+        "operation": "upsert",
         "email": "={{ $json.email }}",
         "additionalFields": {
           "phone": "={{ $json.phone }}"
@@ -142,7 +151,11 @@
           "id": "REPLACE_WITH_CREDENTIAL_ID",
           "name": "HubSpot account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -201,12 +214,16 @@
         ],
         [
           {
-            "node": "Create HubSpot Contact When Missing",
+            "node": "Create or Update HubSpot Contact When Missing",
             "type": "main",
             "index": 0
           }
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_ERROR_WORKFLOW_ID"
   }
 }

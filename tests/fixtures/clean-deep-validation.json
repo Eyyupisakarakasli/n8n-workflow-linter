@@ -138,7 +138,11 @@
           "id": "REPLACE_WITH_CREDENTIAL_ID",
           "name": "HubSpot account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -219,5 +223,9 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_WITH_ERROR_WORKFLOW_ID"
   }
 }

@@ -1,24 +1,28 @@
 import { getHttpMethod, getWebhookAuthentication, nodeTypeIs } from '../n8n/categories'
-import { hasReachableNode, hasUpstreamNode } from '../n8n/graph'
+import { hasReachableNode } from '../n8n/graph'
 import type { N8nNode } from '../n8n/types'
 import {
+  canReturnZeroRows,
   credentialIdLeaks,
   embeddedSecretMatches,
   hasErrorHandling,
+  hasBranchingNode,
+  hasHubSpotEmailInput,
   hasKnownSecret,
   hasNormalizerUpstream,
   hasPaginationSignal,
   hasPinnedData,
+  hasRequiredFieldValidationUpstream,
   hasRetry,
   hasSilentErrorContinue,
   hasTimeout,
   immediateDownstreamHasCategory,
+  isNonHttpExternalActionNode,
   isDuplicateWriteTarget,
   isDefaultNodeName,
   knownSecretsInText,
-  looksLikeCreateContact,
+  looksLikeHubSpotContactWrite,
   looksLikeListEndpoint,
-  looksLikeSearchUpdateOrUpsert,
   makeFinding,
   nodeTextIncludesAny,
   nodesInCategory,
@@ -26,6 +30,8 @@ import {
   reachableWritePaths,
   scheduleLooksFrequent,
   urlSecretMatches,
+  workflowHasErrorWorkflow,
+  workflowUsesV1ExecutionOrder,
   writeTargetsThatCanRunTogether,
 } from './helpers'
 import type { RiskFinding, RuleContext, RuleDefinition } from './types'
@@ -143,15 +149,15 @@ const webhookTestProdRule: RuleDefinition = {
   title: 'Webhook name or path suggests test/prod confusion',
   plainTitle: 'This webhook still looks like a test or staging endpoint',
   plainMeaning:
-    'Test wording in the path, name, or parameters is a common sign that a workflow was exported before production cleanup.',
+    'Test wording in the path, name, or parameters is a low-confidence sign that a workflow was exported before production cleanup.',
   fixSteps: [
     'Confirm this is the production workflow, not a copied test export.',
     'Rename the webhook and path to match the production event contract.',
     'Re-run the scan after updating the workflow export.',
   ],
-  shareSafetyImpact: 'worth-fixing',
+  shareSafetyImpact: 'minor',
   category: 'Webhook',
-  defaultSeverity: 'medium',
+  defaultSeverity: 'low',
   run(context) {
     return nodesInCategory(context, 'webhook')
       .filter((node) =>
@@ -287,6 +293,172 @@ const httpSilentContinueRule: RuleDefinition = {
           whyItMatters: 'Downstream write steps may process an error body as if it were a successful API response.',
         }),
       )
+  },
+}
+
+const externalActionRetryRule: RuleDefinition = {
+  id: 'external-action-missing-retry',
+  title: 'External app node has no retry policy',
+  plainTitle: 'External app calls do not retry temporary failures',
+  plainMeaning:
+    'These app nodes call external systems but do not enable n8n retry settings. A transient API outage, rate limit, or network failure can break a production run even when a retry would have recovered.',
+  fixSteps: [
+    'Enable Retry On Fail for each listed external app node.',
+    'Use conservative retry counts and spacing, for example 3 tries with a short wait.',
+    'Pair retries with an error route or workflow-level error workflow so repeated failures are visible.',
+  ],
+  shareSafetyImpact: 'worth-fixing',
+  category: 'Reliability',
+  defaultSeverity: 'medium',
+  run(context) {
+    return context.workflow.nodes
+      .filter((node) => isNonHttpExternalActionNode(context, node))
+      .filter((node) => !hasRetry(node))
+      .map((node) =>
+        makeFinding({
+          rule: externalActionRetryRule,
+          node,
+          confidence: 'high',
+          problem: 'This external app node has no retryOnFail/maxTries policy.',
+          whyItMatters:
+            'External services fail transiently. Without retries, a short API blip or rate limit can stop the whole workflow.',
+        }),
+      )
+  },
+}
+
+const externalActionErrorRule: RuleDefinition = {
+  id: 'external-action-missing-error-handling',
+  title: 'External app node has no error handling',
+  plainTitle: 'External app calls can fail without a recovery path',
+  plainMeaning:
+    'These app nodes call external systems but do not show an error output branch or equivalent error routing. Production failures can stop the run without cleanup, alerting, or a graceful skip.',
+  fixSteps: [
+    'Set On Error to route failures to an error output where the node supports it.',
+    'Connect failures to a notification, log, retry, or dead-letter path.',
+    'If the node intentionally stops the workflow, make sure the workflow has a configured error workflow.',
+  ],
+  shareSafetyImpact: 'must-fix',
+  category: 'Reliability',
+  defaultSeverity: 'high',
+  run(context) {
+    return context.workflow.nodes
+      .filter((node) => isNonHttpExternalActionNode(context, node))
+      .filter((node) => !hasErrorHandling(context, node))
+      .map((node) => {
+        const isHubSpotContactWrite = looksLikeHubSpotContactWrite(node)
+
+        return makeFinding({
+          rule: externalActionErrorRule,
+          node,
+          confidence: 'high',
+          plainTitle: isHubSpotContactWrite
+            ? 'HubSpot contact write can fail without a recovery path'
+            : undefined,
+          plainMeaning: isHubSpotContactWrite
+            ? 'This HubSpot contact write has no error output branch or equivalent error routing. Conflicts, validation failures, or API errors can stop the workflow instead of being handled deliberately.'
+            : undefined,
+          problem: isHubSpotContactWrite
+            ? 'This HubSpot contact write has no error output branch or onError recovery setting.'
+            : 'This external app node has no error output branch or onError recovery setting.',
+          whyItMatters: isHubSpotContactWrite
+            ? 'HubSpot contact writes can fail on conflicts, validation errors, credentials, or rate limits. A replayed webhook should produce a controlled branch, not an unexplained failed execution.'
+            : 'External API failures are normal in production. Without a recovery path, the failed node can stop the workflow with no local handling.',
+        })
+      })
+  },
+}
+
+const workflowErrorWorkflowRule: RuleDefinition = {
+  id: 'workflow-missing-error-workflow',
+  title: 'Workflow has no error workflow configured',
+  plainTitle: 'The workflow has no global error workflow',
+  plainMeaning:
+    'No workflow-level error workflow was found in settings.errorWorkflow. If a production node fails and the workflow does not handle it locally, failures can stay invisible unless someone checks executions manually.',
+  fixSteps: [
+    'Create a small n8n Error Trigger workflow for production failures.',
+    'Set this workflow as the Error Workflow in workflow settings.',
+    'Send the error workflow to Slack, email, or your incident log with the workflow name and failed node.',
+  ],
+  shareSafetyImpact: 'worth-fixing',
+  category: 'Reliability',
+  defaultSeverity: 'medium',
+  run(context) {
+    if (workflowHasErrorWorkflow(context)) return []
+    if (!context.workflow.nodes.some((node) => isExternalActionNodeOrHttp(context, node))) return []
+
+    return [
+      makeFinding({
+        rule: workflowErrorWorkflowRule,
+        nodes: [],
+        confidence: 'high',
+        problem: 'settings.errorWorkflow is missing from this workflow export.',
+        whyItMatters:
+          'A workflow-level error workflow is the fallback alert path when a node fails without local error handling.',
+      }),
+    ]
+  },
+}
+
+const zeroRowOutputRule: RuleDefinition = {
+  id: 'zero-row-node-may-stop-branch',
+  title: 'Search/list node may stop the branch on zero results',
+  plainTitle: 'A search or list step can silently stop the branch',
+  plainMeaning:
+    'This node looks like it can return zero items and still has downstream steps. Without alwaysOutputData, an empty result can end the branch and look like a successful no-op.',
+  fixSteps: [
+    'Enable Always Output Data when downstream logic must run even on zero results.',
+    'Add an IF/Switch branch that handles empty result sets explicitly.',
+    'Retest the workflow with a case that returns no rows.',
+  ],
+  shareSafetyImpact: 'worth-fixing',
+  category: 'Reliability',
+  defaultSeverity: 'medium',
+  run(context) {
+    return context.workflow.nodes
+      .filter(canReturnZeroRows)
+      .filter((node) => !node.alwaysOutputData)
+      .filter((node) => (context.graph.outgoingById[node.id]?.length ?? 0) > 0)
+      .map((node) =>
+        makeFinding({
+          rule: zeroRowOutputRule,
+          node,
+          confidence: 'medium',
+          problem: 'This search/list-style node can return zero items while downstream nodes depend on its output.',
+          whyItMatters:
+            'In n8n, an empty item set can stop downstream execution. That can make a missing record path look like success.',
+        }),
+      )
+  },
+}
+
+const legacyExecutionOrderRule: RuleDefinition = {
+  id: 'legacy-execution-order',
+  title: 'Workflow may use legacy branch execution order',
+  plainTitle: 'Branch execution order is not pinned to v1',
+  plainMeaning:
+    'This workflow has branching logic but the export does not show settings.executionOrder set to v1. Older execution order can run multi-branch workflows differently than current n8n users expect.',
+  fixSteps: [
+    'Open workflow settings in n8n and confirm execution order is v1.',
+    'Re-test multi-branch paths after changing execution order.',
+    'Export again and re-run the scan.',
+  ],
+  shareSafetyImpact: 'minor',
+  category: 'Reliability',
+  defaultSeverity: 'low',
+  run(context) {
+    if (!hasBranchingNode(context) || workflowUsesV1ExecutionOrder(context)) return []
+
+    return [
+      makeFinding({
+        rule: legacyExecutionOrderRule,
+        nodes: [],
+        confidence: 'medium',
+        problem: 'settings.executionOrder is missing or is not v1 while the workflow contains IF/Switch branching.',
+        whyItMatters:
+          'Branch ordering differences are rare but painful when a workflow relies on side effects across branches.',
+      }),
+    ]
   },
 }
 
@@ -503,31 +675,32 @@ const pinnedDataRule: RuleDefinition = {
   },
 }
 
-const hubspotCreateRule: RuleDefinition = {
-  id: 'hubspot-create-without-dedupe',
-  title: 'HubSpot contact create has no upstream dedupe step',
-  plainTitle: 'HubSpot can create duplicate contacts on repeated runs',
+const hubspotEmailRequiredRule: RuleDefinition = {
+  id: 'hubspot-contact-email-not-required',
+  title: 'HubSpot contact write does not require email first',
+  plainTitle: 'HubSpot contact write may run with a blank email',
   plainMeaning:
-    'This workflow creates HubSpot contacts without a reachable upstream search, update, upsert, or dedupe step. Replayed webhooks and retries can create duplicates.',
+    'HubSpot deduplicates contacts primarily by email. If a webhook replay reaches a contact write with a missing or blank email, the contact may not be deduped and repeated runs can pile up bad records.',
   fixSteps: [
+    'Validate that email exists before the HubSpot contact write.',
+    'Route missing-email payloads to a stop, notification, or quarantine branch.',
     'Normalize the email address before the HubSpot write.',
-    'Search HubSpot by normalized email before creating a contact.',
-    'Update the existing contact or create only when no match exists.',
   ],
   shareSafetyImpact: 'must-fix',
   category: 'HubSpot',
   defaultSeverity: 'high',
   run(context) {
     return nodesInCategory(context, 'hubspot')
-      .filter((node) => looksLikeCreateContact(node))
-      .filter((node) => !hasUpstreamHubspotDedupe(context, node))
+      .filter((node) => looksLikeHubSpotContactWrite(node))
+      .filter((node) => !hasHubSpotEmailInput(node) || !hasRequiredFieldValidationUpstream(context, node, 'email'))
       .map((node) =>
         makeFinding({
-          rule: hubspotCreateRule,
+          rule: hubspotEmailRequiredRule,
           node,
           confidence: 'high',
-          problem: 'A HubSpot contact create action exists without a reachable upstream search, update, upsert, or dedupe step.',
-          whyItMatters: 'Repeated webhook deliveries and retries can create duplicate contacts in HubSpot.',
+          problem: 'No reachable upstream check clearly requires email before this HubSpot contact write.',
+          whyItMatters:
+            'Same-email contacts are normally deduped by HubSpot. Blank or missing-email contacts are where replayed webhooks can create real duplicate CRM noise.',
         }),
       )
   },
@@ -535,10 +708,10 @@ const hubspotCreateRule: RuleDefinition = {
 
 const emailNormalizeRule: RuleDefinition = {
   id: 'email-not-normalized-before-hubspot',
-  title: 'Email may not be normalized before HubSpot create',
+  title: 'Email may not be normalized before HubSpot contact write',
   plainTitle: 'Email is written to HubSpot without clear normalization first',
   plainMeaning:
-    'No upstream step clearly trims and lowercases email before the HubSpot create. This weakens dedupe and reporting.',
+    'No upstream step clearly trims and lowercases email before the HubSpot contact write. This weakens dedupe and reporting.',
   fixSteps: [
     'Trim whitespace from email before HubSpot writes.',
     'Compare and store email in lowercase.',
@@ -549,7 +722,7 @@ const emailNormalizeRule: RuleDefinition = {
   defaultSeverity: 'medium',
   run(context) {
     return nodesInCategory(context, 'hubspot')
-      .filter((node) => looksLikeCreateContact(node))
+      .filter((node) => looksLikeHubSpotContactWrite(node))
       .filter((node) => !hasNormalizerUpstream(context, node, 'email'))
       .map((node) =>
         makeFinding({
@@ -565,10 +738,10 @@ const emailNormalizeRule: RuleDefinition = {
 
 const phoneNormalizeRule: RuleDefinition = {
   id: 'phone-not-normalized-before-hubspot',
-  title: 'Phone may not be normalized before HubSpot create',
+  title: 'Phone may not be normalized before HubSpot contact write',
   plainTitle: 'Phone is written to HubSpot without clear normalization first',
   plainMeaning:
-    'No upstream step clearly normalizes phone numbers before HubSpot create. Phone formats vary by market, so treat this as a conservative hygiene warning.',
+    'No upstream step clearly normalizes phone numbers before HubSpot contact write. Phone formats vary by market, so treat this as a conservative hygiene warning.',
   fixSteps: [
     'Normalize phone numbers to one expected format before writing them.',
     'Strip obvious formatting noise such as spaces, brackets, and dashes.',
@@ -579,7 +752,7 @@ const phoneNormalizeRule: RuleDefinition = {
   defaultSeverity: 'low',
   run(context) {
     return nodesInCategory(context, 'hubspot')
-      .filter((node) => looksLikeCreateContact(node))
+      .filter((node) => looksLikeHubSpotContactWrite(node))
       .filter((node) => !hasNormalizerUpstream(context, node, 'phone'))
       .map((node) =>
         makeFinding({
@@ -772,8 +945,13 @@ export const allRules: RuleDefinition[] = [
   httpRetryRule,
   httpErrorBranchRule,
   httpSilentContinueRule,
+  externalActionRetryRule,
+  externalActionErrorRule,
+  workflowErrorWorkflowRule,
+  zeroRowOutputRule,
+  legacyExecutionOrderRule,
   paginationRule,
-  hubspotCreateRule,
+  hubspotEmailRequiredRule,
   emailNormalizeRule,
   phoneNormalizeRule,
   duplicateWritePathRule,
@@ -788,18 +966,6 @@ export function runRules(context: RuleContext): RiskFinding[] {
   return dedupeFindings(findings).sort(compareFindings)
 }
 
-function hasUpstreamHubspotDedupe(context: RuleContext, node: N8nNode): boolean {
-  return hasUpstreamNode(
-    context.workflow,
-    context.graph,
-    node.id,
-    (candidate) =>
-      context.categoriesByNodeId[candidate.id]?.includes('hubspot') === true &&
-      looksLikeSearchUpdateOrUpsert(candidate),
-    context.maxGraphDepth,
-  )
-}
-
 function hasInboundVerification(context: RuleContext, node: N8nNode): boolean {
   return hasReachableNode(
     context.workflow,
@@ -810,6 +976,10 @@ function hasInboundVerification(context: RuleContext, node: N8nNode): boolean {
       nodeTextIncludesAny(candidate, inboundVerificationSignals),
     3,
   )
+}
+
+function isExternalActionNodeOrHttp(context: RuleContext, node: N8nNode): boolean {
+  return context.categoriesByNodeId[node.id]?.includes('http') === true || isNonHttpExternalActionNode(context, node)
 }
 
 function workflowEnvelopeSecretMatches(context: RuleContext) {

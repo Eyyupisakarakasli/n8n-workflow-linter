@@ -271,7 +271,7 @@ function App() {
         </div>
         <div className="privacy-badge">
           <ShieldCheck size={18} aria-hidden="true" />
-          <span>Your workflow is analyzed locally in your browser.</span>
+          <span>Browser-only scan. No upload, login, analytics, or storage.</span>
         </div>
       </header>
 
@@ -490,9 +490,11 @@ function ReportView({
         <SummaryMetric label="Connections" value={result.summary.totalEdges} />
         <SummaryMetric label="Triggers" value={result.summary.triggerNodes} />
         <SummaryMetric label="HTTP" value={result.summary.httpNodes} />
+        <SummaryMetric label="External actions" value={result.summary.externalActionNodes} />
         <SummaryMetric label="No timeout" value={result.summary.httpNodesMissingTimeout} />
-        <SummaryMetric label="No retry" value={result.summary.httpNodesMissingRetry} />
-        <SummaryMetric label="Error risk" value={result.summary.httpNodesMissingErrorHandling} />
+        <SummaryMetric label="No retry" value={result.summary.nodesMissingRetry} />
+        <SummaryMetric label="Error risk" value={result.summary.nodesMissingErrorHandling} />
+        <SummaryMetric label="Error workflow" value={result.summary.workflowHasErrorWorkflow ? 'Set' : 'Missing'} />
         <SummaryMetric label="Credential IDs" value={result.summary.uniqueCredentialLeaks} />
         <SummaryMetric label="CRM writes" value={result.summary.crmWriteNodes} />
         <SummaryMetric label="Warnings" value={result.summary.parserWarnings} />
@@ -671,7 +673,7 @@ function FeedbackCta({ result }: { result: ScanResult }) {
   )
 }
 
-function SummaryMetric({ label, value }: { label: string; value: number }) {
+function SummaryMetric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="summary-metric">
       <span>{label}</span>
@@ -700,11 +702,11 @@ function DocsBlock() {
       </article>
       <article>
         <h2>Where your data goes</h2>
-        <p>The file is parsed and scanned in your browser. This app does not add analytics, storage, or server uploads.</p>
+        <p>The file is parsed and scanned in your browser. The production build is checked for unexpected network calls, analytics, storage APIs, and server uploads.</p>
       </article>
       <article>
         <h2>What this scanner checks</h2>
-        <p>Webhook exposure, unsafe write paths, HubSpot dedupe gaps, HTTP timeout/retry/error handling, secrets, pinned data, disabled nodes, and naming hygiene.</p>
+        <p>Webhook exposure, unsafe write paths, HubSpot email gaps, HTTP/app retry and error handling, workflow error workflow settings, secrets, pinned data, disabled nodes, and naming hygiene.</p>
       </article>
       <article>
         <h2>What it does not guarantee</h2>

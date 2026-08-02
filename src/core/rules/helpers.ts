@@ -1,6 +1,7 @@
 import {
   categorizeNode,
   getHttpMethod,
+  getNodeTypeSuffix,
   getParameterString,
   nodeTypeIs,
   nodeSearchText,
@@ -116,6 +117,42 @@ const duplicateWriteTargetSignals = [
   'ticket',
   'tickets',
 ]
+const externalActionSuffixes = new Set([
+  'airtable',
+  'emailSend',
+  'gmail',
+  'googleSheets',
+  'hubspot',
+  'httpRequest',
+  'mongoDb',
+  'mysql',
+  'notion',
+  'openAi',
+  'pipedrive',
+  'postgres',
+  'salesforce',
+  'slack',
+  'supabase',
+  'telegram',
+  'zohoCrm',
+].map((suffix) => suffix.toLowerCase()))
+const nonActionSuffixes = new Set([
+  'code',
+  'cron',
+  'filter',
+  'function',
+  'functionItem',
+  'if',
+  'manualTrigger',
+  'noOp',
+  'noop',
+  'scheduleTrigger',
+  'set',
+  'stickyNote',
+  'switch',
+  'webhook',
+].map((suffix) => suffix.toLowerCase()))
+const branchNodeSuffixes = new Set(['if', 'switch'])
 
 export interface SecretMatch {
   label: string
@@ -246,6 +283,31 @@ export function isDuplicateWriteTarget(context: RuleContext, node: N8nNode): boo
   return (
     nodeTextIncludesAny(node, duplicateWriteActionSignals) && nodeTextIncludesAny(node, duplicateWriteTargetSignals)
   )
+}
+
+export function isExternalActionNode(context: RuleContext, node: N8nNode): boolean {
+  const categories = context.categoriesByNodeId[node.id] ?? []
+  const suffix = getNodeTypeSuffix(node).toLowerCase()
+
+  if (nonActionSuffixes.has(suffix)) return false
+  if (categories.includes('http')) return true
+  if (
+    categories.includes('hubspot') ||
+    categories.includes('crm') ||
+    categories.includes('database') ||
+    categories.includes('notification')
+  ) {
+    return true
+  }
+
+  const hasCredential = Object.keys(node.credentials).length > 0
+  if (externalActionSuffixes.has(suffix) && (hasCredential || categories.includes('write'))) return true
+
+  return categories.includes('write') && hasCredential
+}
+
+export function isNonHttpExternalActionNode(context: RuleContext, node: N8nNode): boolean {
+  return isExternalActionNode(context, node) && !context.categoriesByNodeId[node.id]?.includes('http')
 }
 
 export function reachableWritePaths(context: RuleContext, node: N8nNode): ReachableWritePath[] {
@@ -387,6 +449,31 @@ export function hasTimeout(node: N8nNode): boolean {
   })
 }
 
+export function workflowHasErrorWorkflow(context: RuleContext): boolean {
+  const settings = context.originalWorkflow.raw.settings
+  if (!isRecord(settings)) return false
+
+  const errorWorkflow = settings.errorWorkflow
+  if (typeof errorWorkflow === 'string') return errorWorkflow.trim().length > 0
+  if (typeof errorWorkflow === 'number') return Number.isFinite(errorWorkflow)
+  if (!isRecord(errorWorkflow)) return false
+
+  return Object.values(errorWorkflow).some((value) => {
+    if (typeof value === 'string') return value.trim().length > 0
+    if (typeof value === 'number') return Number.isFinite(value)
+    return false
+  })
+}
+
+export function workflowUsesV1ExecutionOrder(context: RuleContext): boolean {
+  const settings = context.originalWorkflow.raw.settings
+  return isRecord(settings) && settings.executionOrder === 'v1'
+}
+
+export function hasBranchingNode(context: RuleContext): boolean {
+  return context.workflow.nodes.some((node) => branchNodeSuffixes.has(getNodeTypeSuffix(node).toLowerCase()))
+}
+
 export function hasPaginationSignal(node: N8nNode): boolean {
   const text = lowerJson(node.parameters)
   return textIncludesAny(text, [
@@ -405,6 +492,7 @@ export function hasPaginationSignal(node: N8nNode): boolean {
 }
 
 export function looksLikeListEndpoint(node: N8nNode): boolean {
+  if (!nodeTypeIs(node, 'httpRequest')) return false
   if (getHttpMethod(node) !== 'GET') return false
 
   const operation = getParameterString(node, 'operation').toLowerCase()
@@ -428,15 +516,70 @@ export function looksLikeListEndpoint(node: N8nNode): boolean {
   return lastSegment.endsWith('s') && lastSegment.length > 4
 }
 
-export function looksLikeCreateContact(node: N8nNode): boolean {
+export function looksLikeHubSpotContactWrite(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase()
   const resource = getParameterString(node, 'resource').toLowerCase()
   const text = nodeSearchText(node)
   const contactContext = resource.includes('contact') || text.includes('contact') || text.includes('contacts')
-  const explicitCreate = operation === 'create'
+  const explicitWrite = ['create', 'upsert'].includes(operation)
   const legacyCreateName = !operation && nodeTypeIs(node, 'hubspot') && /\b(create|add)\b/i.test(node.name)
 
-  return text.includes('hubspot') && contactContext && (explicitCreate || legacyCreateName)
+  return text.includes('hubspot') && contactContext && (explicitWrite || legacyCreateName)
+}
+
+export function hasHubSpotEmailInput(node: N8nNode): boolean {
+  const email = getParameterString(node, 'email')
+  return email.trim().length > 0
+}
+
+export function hasRequiredFieldValidationUpstream(
+  context: RuleContext,
+  node: N8nNode,
+  field: 'email',
+): boolean {
+  return hasUpstreamNode(
+    context.workflow,
+    context.graph,
+    node.id,
+    (candidate) => {
+      const categories = context.categoriesByNodeId[candidate.id] ?? []
+      const candidateLooksLikeValidation =
+        categories.includes('validation') || nodeTypeIs(candidate, 'if', 'switch', 'filter', 'code', 'function')
+      if (!candidateLooksLikeValidation) return false
+
+      const text = nodeSearchText(candidate)
+      return (
+        text.includes(field) &&
+        textIncludesAny(text, [
+          'isnotempty',
+          'is not empty',
+          'not empty',
+          'exists',
+          'required',
+          'missing email',
+          'no email',
+          'valid email',
+          'validate email',
+          'throw new error',
+        ])
+      )
+    },
+    context.maxGraphDepth,
+  )
+}
+
+export function canReturnZeroRows(node: N8nNode): boolean {
+  const operation = getParameterString(node, 'operation').toLowerCase().replace(/\s+/g, '')
+  if (['search', 'getall', 'list', 'lookup', 'find'].includes(operation)) return true
+  if (looksLikeListEndpoint(node)) return true
+
+  const suffix = getNodeTypeSuffix(node).toLowerCase()
+  const text = nodeSearchText(node)
+  if (!['hubspot', 'postgres', 'mysql', 'mongodb', 'supabase', 'airtable', 'googlesheets', 'notion'].includes(suffix)) {
+    return false
+  }
+
+  return /\b(search|find|lookup|list|get all|select|query)\b/i.test(text)
 }
 
 export function looksLikeSearchUpdateOrUpsert(node: N8nNode): boolean {

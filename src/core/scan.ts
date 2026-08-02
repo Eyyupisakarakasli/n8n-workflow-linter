@@ -156,16 +156,36 @@ function summarizeWorkflow(
     httpNodesMissingRetry: 0,
     httpNodesMissingErrorHandling: 0,
     uniqueCredentialLeaks: 0,
+    externalActionNodes: workflow.nodes.filter((node) => localExternalActionCategories(categoriesByNodeId[node.id] ?? [], node)).length,
+    nodesMissingRetry: 0,
+    nodesMissingErrorHandling: 0,
+    workflowHasErrorWorkflow: localWorkflowHasErrorWorkflow(originalWorkflow),
   }
 }
 
 const httpRollupRuleIds = new Set(['http-missing-error-branch', 'http-missing-retry', 'http-missing-timeout'])
+const appRollupRuleIds = new Set(['external-action-missing-error-handling', 'external-action-missing-retry'])
+const webhookExposureRuleIds = new Set([
+  'webhook-missing-secret-check',
+  'webhook-missing-validation',
+  'webhook-direct-write',
+])
 
 function groupFindings(findings: RiskFinding[]): RiskFinding[] {
   const grouped: RiskFinding[] = []
   const httpCandidates = new Map<string, RiskFinding[]>()
+  const appCandidates = new Map<string, RiskFinding[]>()
+  const webhookCandidates = new Map<string, RiskFinding[]>()
 
   for (const finding of findings) {
+    if (webhookExposureRuleIds.has(finding.ruleId) && finding.nodeIds.length === 1) {
+      const key = finding.nodeIds[0]
+      const group = webhookCandidates.get(key) ?? []
+      group.push(finding)
+      webhookCandidates.set(key, group)
+      continue
+    }
+
     if (httpRollupRuleIds.has(finding.ruleId)) {
       const key = `${finding.ruleId}:${finding.severity}`
       const group = httpCandidates.get(key) ?? []
@@ -174,14 +194,65 @@ function groupFindings(findings: RiskFinding[]): RiskFinding[] {
       continue
     }
 
+    if (appRollupRuleIds.has(finding.ruleId)) {
+      const key = `${finding.ruleId}:${finding.severity}`
+      const group = appCandidates.get(key) ?? []
+      group.push(finding)
+      appCandidates.set(key, group)
+      continue
+    }
+
     grouped.push(finding)
+  }
+
+  for (const group of webhookCandidates.values()) {
+    grouped.push(group.length > 1 ? groupWebhookExposureFindings(group) : group[0])
   }
 
   for (const group of httpCandidates.values()) {
     grouped.push(groupHttpFindings(group))
   }
 
+  for (const group of appCandidates.values()) {
+    grouped.push(groupAppFindings(group))
+  }
+
   return grouped.sort(compareFindings)
+}
+
+function groupWebhookExposureFindings(findings: RiskFinding[]): RiskFinding {
+  const representative = findings[0]
+  const nodeIds = unique(findings.flatMap((finding) => finding.nodeIds))
+  const nodeNames = unique(findings.flatMap((finding) => finding.nodeNames))
+  const ruleIds = unique(findings.map((finding) => finding.ruleId))
+
+  return {
+    ...representative,
+    id: `webhook-production-exposure:group:${nodeIds.join(',')}`,
+    ruleId: 'webhook-production-exposure',
+    title: 'Public webhook reaches production actions without enough protection',
+    plainTitle: 'Public webhook can trigger a production write before checks',
+    plainMeaning:
+      'This is one root problem: an incoming webhook can reach a CRM/database/API action before clear authentication and payload validation. The individual checks are grouped so the report shows one issue with multiple fixes.',
+    fixSteps: [
+      'Add Webhook authentication or a signature/HMAC verification step.',
+      'Validate required payload fields before any production write or action.',
+      'Insert transform/dedupe/idempotency logic before the first CRM, database, or API write.',
+    ],
+    shareSafetyImpact: 'must-fix',
+    severity: 'high',
+    category: 'Webhook',
+    nodeIds,
+    nodeNames,
+    problem: `Grouped ${ruleIds.length} webhook exposure checks for this trigger: ${ruleIds.join(', ')}.`,
+    whyItMatters:
+      'Separately listing auth, validation, and direct-write symptoms overstates the count. Operationally they describe one unsafe webhook-to-action path that should be fixed as a unit.',
+    suggestedFix: 'Add authentication/signature verification and validate payload fields before the first production write.',
+    confidence: findings.some((finding) => finding.confidence === 'high') ? 'high' : 'medium',
+    affectedNodeCount: nodeIds.length,
+    groupedRuleIds: ruleIds,
+    groupKind: 'webhook-exposure',
+  }
 }
 
 function groupHttpFindings(findings: RiskFinding[]): RiskFinding {
@@ -212,6 +283,31 @@ function groupHttpFindings(findings: RiskFinding[]): RiskFinding {
   }
 }
 
+function groupAppFindings(findings: RiskFinding[]): RiskFinding {
+  const representative = findings[0]
+  const nodeIds = unique(findings.flatMap((finding) => finding.nodeIds))
+  const nodeNames = unique(findings.flatMap((finding) => finding.nodeNames))
+  const count = nodeIds.length
+  const copy = appRollupCopy(representative.ruleId, count)
+
+  return {
+    ...representative,
+    id: `${representative.ruleId}:group:${representative.severity}:${nodeIds.join(',')}`,
+    title: copy.title,
+    plainTitle: copy.plainTitle,
+    plainMeaning: copy.plainMeaning,
+    fixSteps: copy.fixSteps,
+    nodeIds,
+    nodeNames,
+    problem: copy.problem,
+    whyItMatters: copy.whyItMatters,
+    suggestedFix: copy.fixSteps[0],
+    affectedNodeCount: count,
+    groupedRuleIds: [representative.ruleId],
+    groupKind: 'app-hardening',
+  }
+}
+
 function enrichSummary(summary: WorkflowSummary, findings: RiskFinding[]): WorkflowSummary {
   return {
     ...summary,
@@ -223,6 +319,12 @@ function enrichSummary(summary: WorkflowSummary, findings: RiskFinding[]): Workf
       'http-silent-error-continue',
     ]),
     uniqueCredentialLeaks: findings.filter((finding) => finding.ruleId === 'real-credential-id').length,
+    nodesMissingRetry: affectedNodeCountForRules(findings, ['http-missing-retry', 'external-action-missing-retry']),
+    nodesMissingErrorHandling: affectedNodeCountForRules(findings, [
+      'http-missing-error-branch',
+      'http-silent-error-continue',
+      'external-action-missing-error-handling',
+    ]),
   }
 }
 
@@ -250,7 +352,7 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
   if (ruleId === 'http-missing-error-branch') {
     return {
       title: 'HTTP Request nodes have no error branch',
-      plainTitle: `${count} HTTP ${pluralize(count, 'node')} have no error branch`,
+      plainTitle: `${count} HTTP ${pluralize(count, 'node')} ${hasOrHave(count)} no error branch`,
       plainMeaning: escalated
         ? `None of these ${count} HTTP Request nodes have an error output branch. Each call is a read, so any single failure looks minor, but with no error route anywhere in the path a failed fetch produces a partial run that nothing reports.`
         : 'These HTTP Request nodes do not show an error output branch or equivalent recovery route. A failed API call can stop or distort the workflow without a clear alert path.',
@@ -269,7 +371,7 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
   if (ruleId === 'http-missing-retry') {
     return {
       title: 'HTTP Request nodes have no retry policy',
-      plainTitle: `${count} HTTP ${pluralize(count, 'node')} have no retry policy`,
+      plainTitle: `${count} HTTP ${pluralize(count, 'node')} ${hasOrHave(count)} no retry policy`,
       plainMeaning:
         'These HTTP Request nodes have no explicit retry settings. Temporary network failures, 429s, or 5xx responses can break runs that would succeed on a later attempt.',
       fixSteps: [
@@ -277,7 +379,7 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
         'Use conservative retry counts and spacing, for example 3 tries with a short wait.',
         'Send repeated failures to an alert or dead-letter path.',
       ],
-      problem: `${count} HTTP Request ${pluralize(count, 'node')} have no retryOnFail/maxTries policy.`,
+      problem: `${count} HTTP Request ${pluralize(count, 'node')} ${hasOrHave(count)} no retryOnFail/maxTries policy.`,
       whyItMatters:
         'External APIs often fail transiently. A consistent retry policy reduces avoidable workflow failures and manual reruns.',
     }
@@ -285,7 +387,7 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
 
   return {
     title: 'HTTP Request nodes have no timeout setting',
-    plainTitle: `${count} HTTP ${pluralize(count, 'node')} have no timeout`,
+    plainTitle: `${count} HTTP ${pluralize(count, 'node')} ${hasOrHave(count)} no timeout`,
     plainMeaning:
       'These HTTP Request nodes do not expose an explicit timeout setting. Slow third-party APIs can stall workflow execution and let queued retries pile up.',
     fixSteps: [
@@ -296,6 +398,40 @@ function httpRollupCopy(ruleId: string, count: number, escalated = false) {
     problem: `${count} HTTP Request ${pluralize(count, 'node')} do not expose a timeout setting in their parameters.`,
     whyItMatters:
       'Timeouts keep slow upstream services from blocking workflow execution longer than expected.',
+  }
+}
+
+function appRollupCopy(ruleId: string, count: number) {
+  if (ruleId === 'external-action-missing-error-handling') {
+    return {
+      title: 'External app nodes have no error handling',
+      plainTitle: `${count} external app ${pluralize(count, 'node')} can fail without a recovery path`,
+      plainMeaning:
+        'These non-HTTP app nodes call services such as HubSpot, Slack, or databases, but do not show an error output branch or equivalent onError routing.',
+      fixSteps: [
+        'Add error output or onError recovery for each listed app node.',
+        'Route failures to Slack, email, a log, or a dead-letter path.',
+        'Use a workflow-level error workflow as the fallback for failures not handled locally.',
+      ],
+      problem: `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no error output branch or onError recovery setting.`,
+      whyItMatters:
+        'App nodes are API calls too. HubSpot, Slack, Postgres, and similar services can fail, rate-limit, or reject data during production runs.',
+    }
+  }
+
+  return {
+    title: 'External app nodes have no retry policy',
+    plainTitle: `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no retry policy`,
+    plainMeaning:
+      'These non-HTTP app nodes call external services but do not enable retryOnFail/maxTries. Transient API failures can break runs that would recover on a retry.',
+    fixSteps: [
+      'Enable Retry On Fail for each listed app node.',
+      'Use conservative retry counts and spacing, for example 3 tries with a short wait.',
+      'Pair retries with an error route or workflow-level error workflow.',
+    ],
+    problem: `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no retryOnFail/maxTries policy.`,
+    whyItMatters:
+      'External services commonly fail transiently. A consistent retry policy reduces avoidable failed executions and manual reruns.',
   }
 }
 
@@ -323,4 +459,38 @@ function compareFindings(a: RiskFinding, b: RiskFinding): number {
 
 function pluralize(count: number, singular: string): string {
   return count === 1 ? singular : `${singular}s`
+}
+
+function hasOrHave(count: number): 'has' | 'have' {
+  return count === 1 ? 'has' : 'have'
+}
+
+function localExternalActionCategories(categories: NodeCategory[], node: N8nNode): boolean {
+  if (categories.includes('http')) return true
+  if (
+    categories.includes('hubspot') ||
+    categories.includes('crm') ||
+    categories.includes('database') ||
+    categories.includes('notification')
+  ) {
+    return true
+  }
+
+  return categories.includes('write') && Object.keys(node.credentials).length > 0
+}
+
+function localWorkflowHasErrorWorkflow(workflow: NormalizedWorkflow): boolean {
+  const settings = workflow.raw.settings
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return false
+
+  const errorWorkflow = settings.errorWorkflow
+  if (typeof errorWorkflow === 'string') return errorWorkflow.trim().length > 0
+  if (typeof errorWorkflow === 'number') return Number.isFinite(errorWorkflow)
+  if (!errorWorkflow || typeof errorWorkflow !== 'object' || Array.isArray(errorWorkflow)) return false
+
+  return Object.values(errorWorkflow).some((value) => {
+    if (typeof value === 'string') return value.trim().length > 0
+    if (typeof value === 'number') return Number.isFinite(value)
+    return false
+  })
 }

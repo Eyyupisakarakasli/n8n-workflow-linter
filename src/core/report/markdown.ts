@@ -52,6 +52,7 @@ export function buildMarkdownReport(result: ScanResult): string {
     `Source: ${result.sourceLabel}`,
     `Scanned: ${new Date(result.scannedAt).toLocaleString()}`,
     'Scanned locally in the browser with n8n Workflow Linter (public beta).',
+    'Privacy: workflow JSON is parsed in your browser; this app adds no analytics, server upload, or storage.',
     'https://n8n-workflow-linter.vercel.app',
     '',
     '## Summary',
@@ -63,12 +64,14 @@ export function buildMarkdownReport(result: ScanResult): string {
     `- Connections scanned: ${result.summary.totalEdges}`,
     `- Trigger nodes: ${result.summary.triggerNodes}`,
     `- HTTP nodes: ${result.summary.httpNodes}`,
+    `- External action nodes: ${result.summary.externalActionNodes}`,
     `- CRM write nodes: ${result.summary.crmWriteNodes}`,
     `- Disconnected active nodes: ${result.summary.disconnectedNodes}`,
     `- Affected nodes: ${result.summary.affectedNodes}`,
     `- HTTP nodes missing timeout: ${result.summary.httpNodesMissingTimeout}`,
-    `- HTTP nodes missing retry: ${result.summary.httpNodesMissingRetry}`,
-    `- HTTP nodes with error-handling risk: ${result.summary.httpNodesMissingErrorHandling}`,
+    `- Nodes missing retry: ${result.summary.nodesMissingRetry}`,
+    `- Nodes with error-handling risk: ${result.summary.nodesMissingErrorHandling}`,
+    `- Workflow error workflow: ${result.summary.workflowHasErrorWorkflow ? 'configured' : 'missing'}`,
     `- Unique credential ID leaks: ${result.summary.uniqueCredentialLeaks}`,
     `- Parser warnings: ${result.summary.parserWarnings}`,
     `- Findings: ${result.findings.length}`,
@@ -127,7 +130,12 @@ function buildChecklistLines(result: ScanResult): string[] {
     '',
     ...result.findings.map((finding) => {
       const nodeLabel = finding.nodeNames.join(', ') || 'Workflow level'
-      if (finding.groupKind === 'http-hardening' || finding.groupKind === 'credential-leak') {
+      if (
+        finding.groupKind === 'http-hardening' ||
+        finding.groupKind === 'credential-leak' ||
+        finding.groupKind === 'webhook-exposure' ||
+        finding.groupKind === 'app-hardening'
+      ) {
         return `- [ ] ${finding.plainTitle}: ${finding.fixSteps[0] ?? finding.suggestedFix}`
       }
       return `- [ ] ${nodeLabel}: ${finding.fixSteps[0] ?? finding.suggestedFix}`

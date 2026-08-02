@@ -1,5 +1,5 @@
 {
-  "name": "Risky - Public Webhook Creates HubSpot Contact",
+  "name": "Risky - Public Webhook Upserts HubSpot Contact",
   "nodes": [
     {
       "id": "webhook-risk",
@@ -15,14 +15,14 @@
       }
     },
     {
-      "id": "hubspot-create-risk",
-      "name": "Create HubSpot Contact",
+      "id": "hubspot-upsert-risk",
+      "name": "Create or Update HubSpot Contact",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
       "position": [280, 0],
       "parameters": {
         "resource": "contact",
-        "operation": "create",
+        "operation": "upsert",
         "email": "={{ $json.email }}",
         "additionalFields": {
           "phone": "={{ $json.phone }}",
@@ -42,7 +42,7 @@
       "main": [
         [
           {
-            "node": "Create HubSpot Contact",
+            "node": "Create or Update HubSpot Contact",
             "type": "main",
             "index": 0
           }

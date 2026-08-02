@@ -18,11 +18,11 @@ Confirm that the scanner is useful for real n8n users without giving false confi
 Test at least:
 
 - 2 webhook-driven workflows that write to a CRM, database, or external API
-- 1 workflow using HubSpot create/update/search/upsert
+- 1 workflow using HubSpot update/search/upsert or Create or Update contact
 - 1 schedule-triggered workflow that calls HTTP APIs
 - 1 workflow with intentionally disabled draft nodes or Sticky Notes
 - 1 workflow you believe is production-safe
-- 1 workflow you know has a risk, such as pinned data, missing webhook auth, or missing HTTP error handling
+- 1 workflow you know has a risk, such as pinned data, missing webhook auth, missing email validation, or missing app-node error handling
 
 ## Result log template
 

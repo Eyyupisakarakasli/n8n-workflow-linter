@@ -61,6 +61,7 @@ function normalizeNode(rawNode: unknown, index: number, warnings: ParserWarning[
     waitBetweenTries: asNumber(rawNode.waitBetweenTries),
     continueOnFail: rawNode.continueOnFail === true,
     onError: asString(rawNode.onError),
+    alwaysOutputData: rawNode.alwaysOutputData === true,
     notes: asString(rawNode.notes),
     raw: rawNode,
   }

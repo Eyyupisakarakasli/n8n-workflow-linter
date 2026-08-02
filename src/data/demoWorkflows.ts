@@ -14,7 +14,7 @@ export const demoWorkflows: DemoWorkflow[] = [
   {
     id: 'webhook-hubspot-risk',
     name: 'Webhook to HubSpot risk',
-    description: 'Direct public webhook to HubSpot create, no validation or dedupe.',
+    description: 'Direct public webhook to HubSpot upsert, no authentication, email validation, or error handling.',
     json: webhookHubspotRisk,
   },
   {

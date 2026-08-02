@@ -14,6 +14,7 @@ export interface RawN8nNode extends JsonObject {
   waitBetweenTries?: number
   continueOnFail?: boolean
   onError?: string
+  alwaysOutputData?: boolean
   notes?: string
 }
 
@@ -23,6 +24,7 @@ export interface RawN8nWorkflow extends JsonObject {
   nodes?: RawN8nNode[]
   connections?: RawN8nConnections
   pinData?: JsonObject
+  settings?: JsonObject
 }
 
 export interface RawN8nConnectionTarget extends JsonObject {
@@ -48,6 +50,7 @@ export interface N8nNode {
   waitBetweenTries?: number
   continueOnFail: boolean
   onError?: string
+  alwaysOutputData: boolean
   notes?: string
   raw: RawN8nNode
 }
@@ -109,4 +112,8 @@ export interface WorkflowSummary {
   httpNodesMissingRetry: number
   httpNodesMissingErrorHandling: number
   uniqueCredentialLeaks: number
+  externalActionNodes: number
+  nodesMissingRetry: number
+  nodesMissingErrorHandling: number
+  workflowHasErrorWorkflow: boolean
 }

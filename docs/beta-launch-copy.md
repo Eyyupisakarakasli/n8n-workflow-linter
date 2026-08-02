@@ -6,7 +6,7 @@ Live beta: https://n8n-workflow-linter.vercel.app
 
 I built a small browser-based linter for exported n8n workflows.
 
-It scans workflow JSON locally and checks whether a workflow is safe to share or ready for a production review. It flags issues like public webhooks without auth, write paths without validation, weak HTTP retry/error handling, pinned data, embedded secrets, and real n8n credential IDs.
+It scans workflow JSON locally and checks whether a workflow is safe to share or ready for a production review. It flags issues like public webhooks without auth, write paths without validation, weak HTTP/app retry and error handling, pinned data, embedded secrets, and real n8n credential IDs.
 
 No login. No n8n API connection. No workflow upload to a server.
 
@@ -26,9 +26,9 @@ Current checks include:
 
 - webhook auth and validation gaps
 - direct webhook-to-write paths
-- HubSpot create without dedupe/search/upsert
+- HubSpot contact writes without required email validation
 - duplicate CRM/database/API write paths
-- grouped HTTP timeout, retry, error branch, and pagination signals
+- grouped HTTP/app timeout, retry, error branch, and production error workflow signals
 - pinned data, hardcoded secrets, credential-shaped values, and real credential IDs
 - disabled nodes and default node names
 
@@ -55,4 +55,4 @@ When you send feedback, the most useful format is:
 - Finding IDs that looked wrong
 - Expected result
 - Actual result
-- Safe redacted workflow shape, for example `Webhook -> IF -> HubSpot search -> IF -> update/create`
+- Safe redacted workflow shape, for example `Webhook -> IF -> HubSpot search -> IF -> update/upsert`
