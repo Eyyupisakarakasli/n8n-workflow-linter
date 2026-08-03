@@ -23,8 +23,6 @@ import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.wor
 
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
-const feedbackForumUrl =
-  'https://community.n8n.io/t/looking-for-feedback-local-browser-scanner-for-exported-n8n-workflows/305727'
 
 type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
 type CopyState = 'idle' | 'copied' | 'failed'
@@ -513,8 +511,6 @@ function ReportView({
         </button>
       </div>
 
-      <FeedbackCta result={result} />
-
       <div className="filters">
         <Filter size={17} aria-hidden="true" />
         <select value={severityFilter} onChange={(event) => onSeverityChange(event.target.value as 'all' | Severity)}>
@@ -614,54 +610,6 @@ function ReportView({
             </section>
           ))
         )}
-      </div>
-    </div>
-  )
-}
-
-function FeedbackCta({ result }: { result: ScanResult }) {
-  const [copyState, setCopyState] = useState<CopyState>('idle')
-  const feedbackTemplate = [
-    `Workflow report: ${result.workflowName}`,
-    '',
-    'Please attach the exported markdown report from the app.',
-    '',
-    'Do not send raw workflow JSON unless it is fully sanitized.',
-    '',
-    'Feedback format:',
-    '- Verdict shown:',
-    '- Finding IDs that looked wrong:',
-    '- Expected result:',
-    '- Actual result:',
-    '- Safe redacted workflow shape:',
-  ].join('\n')
-
-  async function copyFeedbackTemplate() {
-    if (await writeClipboard(feedbackTemplate)) {
-      setCopyState('copied')
-      window.setTimeout(() => setCopyState('idle'), 1600)
-      return
-    }
-
-    setCopyState('failed')
-    window.setTimeout(() => setCopyState('idle'), 2200)
-  }
-
-  return (
-    <div className="feedback-cta">
-      <div>
-        <strong>Share safe beta feedback</strong>
-        <p>Use the forum thread with the markdown report and a short note. Do not share raw workflow JSON.</p>
-      </div>
-      <div className="feedback-actions">
-        <button type="button" onClick={() => void copyFeedbackTemplate()}>
-          <Copy size={17} aria-hidden="true" />
-          <span>{copyLabel(copyState, 'Copy template')}</span>
-        </button>
-        <a href={feedbackForumUrl} target="_blank" rel="noreferrer">
-          <FileText size={17} aria-hidden="true" />
-          <span>Forum thread</span>
-        </a>
       </div>
     </div>
   )
