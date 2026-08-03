@@ -1188,6 +1188,110 @@ describe('scanWorkflowInput', () => {
     expect(getReportVerdict(result).label).toBe('No production blockers found')
   })
 
+  it('treats Google Sheets append exports without resource as terminal write risks', () => {
+    const sheetsNode = {
+      id: 'sheets',
+      name: 'Log every lead',
+      type: 'n8n-nodes-base.googleSheets',
+      typeVersion: 4.5,
+      parameters: {
+        operation: 'append',
+        documentId: {
+          __rl: true,
+          mode: 'url',
+          value: 'PASTE_YOUR_GOOGLE_SHEET_URL_HERE',
+        },
+        sheetName: {
+          __rl: true,
+          mode: 'name',
+          value: 'Leads',
+        },
+      },
+      credentials: {
+        googleSheetsOAuth2Api: {
+          id: 'REPLACE_WITH_CREDENTIAL_ID',
+          name: 'Google Sheets account',
+        },
+      },
+      onError: 'continueRegularOutput',
+    }
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Terminal Google Sheets append',
+        nodes: [
+          {
+            id: 'schedule',
+            name: 'Daily leads',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            parameters: {},
+          },
+          sheetsNode,
+        ],
+        connections: {
+          'Daily leads': {
+            main: [[{ node: 'Log every lead', type: 'main', index: 0 }]],
+          },
+        },
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'terminal sheets append',
+    )
+
+    const errorFinding = findingsFor(result, 'external-action-missing-error-handling')[0]
+
+    expect(categorizeNode(sheetsNode)).toContain('write')
+    expect(result.summary.externalActionNodes).toBe(1)
+    expect(result.summary.nodesMissingErrorHandling).toBe(1)
+    expect(errorFinding.severity).toBe('high')
+    expect(errorFinding.problem).toContain('terminal external write')
+    expect(errorFinding.plainMeaning).toContain('no downstream node')
+    expect(errorFinding.whyItMatters).toContain('workflow-level error workflow will not fire')
+    expect(getReportVerdict(result).label).toBe('Fix before production use')
+  })
+
+  it('does not demote silent terminal app writes just because a workflow error workflow exists', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Terminal Google Sheets append with global error workflow',
+        nodes: [
+          {
+            id: 'sheets',
+            name: 'Log every lead',
+            type: 'n8n-nodes-base.googleSheets',
+            parameters: {
+              operation: 'append',
+            },
+            credentials: {
+              googleSheetsOAuth2Api: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'Google Sheets account',
+              },
+            },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueRegularOutput',
+          },
+        ],
+        settings: {
+          executionOrder: 'v1',
+          errorWorkflow: '42',
+        },
+      }),
+      'terminal sheets append with global fallback',
+    )
+
+    const errorFinding = findingsFor(result, 'external-action-missing-error-handling')[0]
+
+    expect(result.summary.workflowHasErrorWorkflow).toBe(true)
+    expect(ids(result).has('workflow-missing-error-workflow')).toBe(false)
+    expect(errorFinding.severity).toBe('high')
+    expect(errorFinding.shareSafetyImpact).toBe('must-fix')
+    expect(errorFinding.whyItMatters).toContain('workflow-level error workflow will not fire')
+    expect(getReportVerdict(result).label).toBe('Fix before production use')
+  })
+
   it('demotes external write node local error gaps when a workflow error workflow exists', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
