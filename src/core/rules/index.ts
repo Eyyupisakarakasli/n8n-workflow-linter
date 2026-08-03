@@ -960,6 +960,56 @@ const defaultNodeNamesRule: RuleDefinition = {
   },
 }
 
+const switchFallbackRule: RuleDefinition = {
+  id: 'switch-missing-default',
+  title: 'Switch node has no default fallback output',
+  plainTitle: 'A Switch step has no default fallback branch',
+  plainMeaning:
+    'This Switch node does not connect a node to every output index. Unexpected data can exit the Switch with no target and silently stop the branch.',
+  fixSteps: [
+    'Connect a node to every Switch output or add a default fallback path.',
+    'Route unmatched cases to a notification, log, or error branch.',
+    'Test the workflow with a value that does not match any rule.',
+  ],
+  shareSafetyImpact: 'worth-fixing',
+  category: 'Reliability',
+  defaultSeverity: 'medium',
+  run(context) {
+    return context.workflow.nodes
+      .filter((n) => nodeTypeIs(n, 'switch'))
+      .filter((n) => {
+        const rules = safeSwitchRules(n.parameters)
+        if (!Array.isArray(rules) || rules.length === 0) return false
+        const usedOutputs = new Set<number>()
+        for (const edge of context.graph.outgoingById[n.id] ?? []) {
+          usedOutputs.add(edge.outputIndex)
+        }
+        return rules.some((_rule, idx) => !usedOutputs.has(idx))
+      })
+      .map((n) => {
+        const rules = safeSwitchRules(n.parameters)
+        const usedOutputs = new Set<number>()
+        for (const edge of context.graph.outgoingById[n.id] ?? []) usedOutputs.add(edge.outputIndex)
+        const missing = Array.isArray(rules) ? rules.filter((_r, i) => !usedOutputs.has(i)).length : 0
+        return makeFinding({
+          rule: switchFallbackRule,
+          node: n,
+          confidence: 'high',
+          problem: `${missing} Switch output${missing === 1 ? '' : 's'} have no connected fallback path.`,
+          whyItMatters: 'An unmatched Switch rule can exit with no target, silently stopping the branch with no error signal.',
+        })
+      })
+  },
+}
+
+function safeSwitchRules(parameters: Record<string, unknown>): unknown[] {
+  const rules = parameters.rules
+  if (Array.isArray(rules)) return rules
+  const dataRules = (parameters as Record<string, unknown>).dataRules
+  if (Array.isArray(dataRules)) return dataRules
+  return []
+}
+
 const disabledNodeRule: RuleDefinition = {
   id: 'disabled-node',
   title: 'Disabled node left on the canvas',
@@ -1016,6 +1066,7 @@ export const allRules: RuleDefinition[] = [
   frequentScheduleRule,
   disconnectedCriticalNodeRule,
   defaultNodeNamesRule,
+  switchFallbackRule,
   disabledNodeRule,
 ]
 

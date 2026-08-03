@@ -1621,6 +1621,15 @@ describe('scanWorkflowInput', () => {
     expect(result.summary.uniqueCredentialLeaks).toBe(2)
   })
 
+  it('flags switch nodes with missing fallback outputs', () => {
+    const clean = scanWorkflowInput(fixture('clean-switch-all-outputs.json'), 'clean-switch')
+    const risky = scanWorkflowInput(fixture('risky-switch-missing-fallback.json'), 'risky-switch')
+
+    expect(findingsFor(clean, 'switch-missing-default')).toHaveLength(0)
+    expect(findingsFor(risky, 'switch-missing-default')).toHaveLength(1)
+    expect(findingsFor(risky, 'switch-missing-default')[0]?.severity).toBe('medium')
+  })
+
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {
     const demoSourcePath = fileURLToPath(new URL('../src/data/demoWorkflows.ts', import.meta.url))
     const demoSource = readFileSync(demoSourcePath, 'utf8')

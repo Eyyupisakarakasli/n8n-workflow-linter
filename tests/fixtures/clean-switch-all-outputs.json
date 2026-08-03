@@ -1,0 +1,94 @@
+{
+  "name": "Clean - Switch with all outputs connected",
+  "nodes": [
+    {
+      "id": "switch-clean",
+      "name": "Route by type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rules": [
+          {
+            "value": "lead",
+            "output": 0
+          },
+          {
+            "value": "contact",
+            "output": 1
+          },
+          {
+            "value": "deal",
+            "output": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "lead-path",
+      "name": "Lead path",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        280,
+        -100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "contact-path",
+      "name": "Contact path",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "deal-path",
+      "name": "Deal path",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        280,
+        100
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Route by type": {
+      "main": [
+        [
+          {
+            "node": "Lead path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Contact path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deal path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
