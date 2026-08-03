@@ -1713,6 +1713,15 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(risky, 'default-timezone')).toHaveLength(1)
   })
 
+  it('flags monolithic workflows with 50+ active nodes', () => {
+    const large = scanWorkflowInput(fixture('risky-monolithic-workflow.json'), 'monolithic')
+    const small = scanWorkflowInput(fixture('risky-invalid-cron.json'), 'small')
+
+    expect(findingsFor(large, 'monolithic-workflow')).toHaveLength(1)
+    expect(large.findings[0]?.problem).toContain('55')
+    expect(findingsFor(small, 'monolithic-workflow')).toHaveLength(0)
+  })
+
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {
     const demoSourcePath = fileURLToPath(new URL('../src/data/demoWorkflows.ts', import.meta.url))
     const demoSource = readFileSync(demoSourcePath, 'utf8')

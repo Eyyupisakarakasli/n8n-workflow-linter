@@ -1111,6 +1111,35 @@ const defaultTimezoneRule: RuleDefinition = {
   },
 }
 
+const monolithicWorkflowRule: RuleDefinition = {
+  id: 'monolithic-workflow',
+  title: 'Workflow has a very large number of active nodes',
+  plainTitle: 'This workflow has more than 50 active steps',
+  plainMeaning:
+    'A workflow with a large node count is harder to debug, slower to scan, and more likely to hide fragile error paths.',
+  fixSteps: [
+    'Split the workflow into smaller sub-workflows connected via Execute Workflow or webhooks.',
+    'Keep each sub-workflow focused on one measurable outcome.',
+    'Re-run the scan on each split workflow.',
+  ],
+  shareSafetyImpact: 'minor',
+  category: 'Hygiene',
+  defaultSeverity: 'info',
+  run(context) {
+    const activeNodeCount = context.workflow.nodes.length
+    if (activeNodeCount < 50) return []
+    return [
+      makeFinding({
+        rule: monolithicWorkflowRule,
+        nodes: [],
+        confidence: 'medium',
+        problem: `${activeNodeCount} active nodes — large workflows are harder to debug and maintain.`,
+        whyItMatters: 'A failure anywhere in a very large workflow can be hard to isolate, and error handling gaps multiply.',
+      }),
+    ]
+  },
+}
+
 function safeSwitchRules(parameters: Record<string, unknown>): unknown[] {
   const rules = parameters.rules
   if (Array.isArray(rules)) return rules
@@ -1212,6 +1241,7 @@ export const allRules: RuleDefinition[] = [
   ifUnhandledBranchRule,
   invalidCronRule,
   defaultTimezoneRule,
+  monolithicWorkflowRule,
   disabledNodeRule,
 ]
 
