@@ -521,11 +521,9 @@ export function looksLikeHubSpotContactWrite(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase()
   const resource = getParameterString(node, 'resource').toLowerCase()
   const text = nodeSearchText(node)
-  const contactContext =
-    resource.includes('contact') ||
-    getParameterString(node, 'email').trim().length > 0 ||
-    text.includes('contact') ||
-    text.includes('contacts')
+  const contactContext = resource
+    ? resource === 'contact'
+    : getParameterString(node, 'email').trim().length > 0 || textIncludesAny(text, ['contact', 'contacts'])
   const explicitWrite = ['create', 'upsert'].includes(operation)
   const impliedDefaultUpsert = !operation && hubSpotLooksWrite(node)
 

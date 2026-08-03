@@ -16,7 +16,7 @@ export type NodeCategory =
   | 'unknown'
 
 const writeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const writeOperations = new Set(['add', 'append', 'create', 'delete', 'insert', 'post', 'remove', 'send', 'update', 'upsert'])
+const writeOperations = new Set(['add', 'append', 'create', 'delete', 'insert', 'post', 'remove', 'send', 'submit', 'update', 'upsert'])
 const readOperations = new Set([
   'find',
   'get',
@@ -189,7 +189,15 @@ export function hubSpotLooksWrite(node: N8nNode): boolean {
   const operation = getParameterString(node, 'operation').toLowerCase()
   if (operation) return isWriteOperation(operation)
 
-  return true
+  return hubSpotDefaultOperationLooksWrite(getParameterString(node, 'resource'))
+}
+
+function hubSpotDefaultOperationLooksWrite(resource: string): boolean {
+  const normalized = resource.toLowerCase()
+  if (!normalized) return true
+
+  const defaultReadResources = new Set(['form'])
+  return !defaultReadResources.has(normalized)
 }
 
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {
