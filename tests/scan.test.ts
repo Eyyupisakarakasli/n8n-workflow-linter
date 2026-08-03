@@ -800,6 +800,65 @@ describe('scanWorkflowInput', () => {
     }
   })
 
+  it('does not treat default HubSpot contact list writes as contact email upserts', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Real export default HubSpot contact list add',
+        nodes: [
+          {
+            id: 'list',
+            name: 'Add Contact To HubSpot List',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'contactList',
+              by: 'id',
+              id: '={{ $json.contactId }}',
+              listId: '123',
+            },
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+        ],
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'default contact list add',
+    )
+
+    expect(result.summary.crmWriteNodes).toBe(1)
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+    expect(ids(result).has('email-not-normalized-before-hubspot')).toBe(false)
+    expect(ids(result).has('phone-not-normalized-before-hubspot')).toBe(false)
+  })
+
+  it('classifies HubSpot form defaults as reads and form submit as a write', () => {
+    const defaultFormCategories = categorizeNode({
+      id: 'form-default',
+      name: 'Get HubSpot Form Fields',
+      type: 'n8n-nodes-base.hubspot',
+      parameters: {
+        resource: 'form',
+      },
+    })
+    const submitFormCategories = categorizeNode({
+      id: 'form-submit',
+      name: 'Submit HubSpot Form',
+      type: 'n8n-nodes-base.hubspot',
+      parameters: {
+        resource: 'form',
+        operation: 'submit',
+      },
+    })
+
+    expect(defaultFormCategories).not.toContain('write')
+    expect(submitFormCategories).toContain('write')
+  })
+
   it('allows upstream email validation to satisfy legacy HubSpot contact writes', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
