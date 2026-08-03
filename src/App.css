@@ -99,6 +99,32 @@
   margin: 0;
 }
 
+.early-access {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.early-access p {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+}
+
+.early-access a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.early-access a:hover,
+.early-access a:focus-visible {
+  text-decoration: underline;
+}
+
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1.6fr);

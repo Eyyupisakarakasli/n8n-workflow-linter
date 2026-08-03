@@ -21,6 +21,11 @@ import type { Severity } from './core/rules/types'
 import { demoWorkflows } from './data/demoWorkflows'
 import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.worker'
 
+// External form on purpose. The production CSP sets connect-src 'none' and
+// scripts/privacy-scan.mjs fails the build on any in-app network call, so the
+// waitlist has to live outside the app for the no-upload promise to stay true.
+const EARLY_ACCESS_FORM_URL = 'https://tally.so/r/aQ15Pq'
+
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
 
@@ -621,6 +626,16 @@ function ReportView({
           ))
         )}
       </div>
+
+      <aside className="early-access">
+        <p>
+          Scanning stays free and unlimited. I am considering a version that runs automatically where you generate
+          workflows, so a generated export gets checked before you import it.
+        </p>
+        <a href={EARLY_ACCESS_FORM_URL} target="_blank" rel="noopener noreferrer">
+          $29 one-time early access &mdash; tell me when it ships
+        </a>
+      </aside>
     </div>
   )
 }
