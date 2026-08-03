@@ -21,12 +21,25 @@
       "position": [240, 0],
       "parameters": {
         "conditions": {
-          "string": [
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
             {
-              "value1": "={{ $json.email }}",
-              "operation": "isNotEmpty"
+              "id": "email-not-empty",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       }
     },
