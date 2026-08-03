@@ -401,14 +401,6 @@ textarea:focus {
   gap: 8px;
 }
 
-.feedback-email {
-  display: inline-block;
-  margin-top: 6px;
-  color: var(--text-strong);
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
 .feedback-cta a,
 .feedback-cta button {
   flex: 0 0 auto;

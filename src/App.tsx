@@ -8,7 +8,6 @@ import {
   FileText,
   Filter,
   Loader2,
-  Mail,
   Play,
   ShieldCheck,
   Upload,
@@ -24,7 +23,6 @@ import type { ScanWorkerRequest, ScanWorkerResponse } from './worker/scanner.wor
 
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
-const feedbackEmail = 'eyyupisa16@gmail.com'
 const feedbackForumUrl =
   'https://community.n8n.io/t/looking-for-feedback-local-browser-scanner-for-exported-n8n-workflows/305727'
 
@@ -623,8 +621,9 @@ function ReportView({
 
 function FeedbackCta({ result }: { result: ScanResult }) {
   const [copyState, setCopyState] = useState<CopyState>('idle')
-  const subject = `n8n Workflow Linter feedback: ${result.workflowName}`
   const feedbackTemplate = [
+    `Workflow report: ${result.workflowName}`,
+    '',
     'Please attach the exported markdown report from the app.',
     '',
     'Do not send raw workflow JSON unless it is fully sanitized.',
@@ -651,19 +650,14 @@ function FeedbackCta({ result }: { result: ScanResult }) {
   return (
     <div className="feedback-cta">
       <div>
-        <strong>Send safe beta feedback</strong>
-        <p>Send the markdown report and a short note. Do not send raw workflow JSON.</p>
-        <span className="feedback-email">{feedbackEmail}</span>
+        <strong>Share safe beta feedback</strong>
+        <p>Use the forum thread with the markdown report and a short note. Do not share raw workflow JSON.</p>
       </div>
       <div className="feedback-actions">
         <button type="button" onClick={() => void copyFeedbackTemplate()}>
           <Copy size={17} aria-hidden="true" />
           <span>{copyLabel(copyState, 'Copy template')}</span>
         </button>
-        <a href={`mailto:${feedbackEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(feedbackTemplate)}`}>
-          <Mail size={17} aria-hidden="true" />
-          <span>Email feedback</span>
-        </a>
         <a href={feedbackForumUrl} target="_blank" rel="noreferrer">
           <FileText size={17} aria-hidden="true" />
           <span>Forum thread</span>
