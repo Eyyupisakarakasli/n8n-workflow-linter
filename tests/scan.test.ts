@@ -20,6 +20,30 @@ function fixtureNames(prefix = ''): string[] {
     .sort()
 }
 
+function emailGuardConditions(operation = 'notEmpty') {
+  return {
+    options: {
+      caseSensitive: true,
+      leftValue: '',
+      typeValidation: 'strict',
+      version: 2,
+    },
+    conditions: [
+      {
+        id: `email-${operation}`,
+        leftValue: '={{ $json.email }}',
+        rightValue: '',
+        operator: {
+          type: 'string',
+          operation,
+          singleValue: true,
+        },
+      },
+    ],
+    combinator: 'and',
+  }
+}
+
 function ids(result: ScanResult): Set<string> {
   return new Set(result.findings.map((finding) => finding.ruleId))
 }
@@ -86,14 +110,7 @@ function buildDeepHttpPostWorkflow({ includeValidation, mappingCount }: { includ
       typeVersion: 2,
       position: [(mappingCount + 1) * 180, 0],
       parameters: {
-        conditions: {
-          string: [
-            {
-              value1: '={{ $json.email }}',
-              operation: 'isNotEmpty',
-            },
-          ],
-        },
+        conditions: emailGuardConditions(),
       },
     })
     connections[previousName] = { main: [[{ node: validationName, type: 'main', index: 0 }]] }
@@ -624,6 +641,70 @@ describe('scanWorkflowInput', () => {
     )
   })
 
+  it('accepts current IF filter operators as upstream HubSpot email guards', () => {
+    for (const operation of ['notEmpty', 'exists']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `HubSpot upsert guarded by ${operation}`,
+          nodes: [
+            {
+              id: 'webhook',
+              name: 'Lead Intake',
+              type: 'n8n-nodes-base.webhook',
+              parameters: {
+                path: 'lead',
+                authentication: 'headerAuth',
+              },
+            },
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              typeVersion: 2.3,
+              parameters: {
+                conditions: emailGuardConditions(operation),
+              },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot2',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: {
+                resource: 'contact',
+                email: '={{ $json.email }}',
+              },
+              retryOnFail: true,
+              maxTries: 3,
+              onError: 'continueErrorOutput',
+              credentials: {
+                hubspotApi: {
+                  id: 'REPLACE_WITH_CREDENTIAL_ID',
+                  name: 'HubSpot account',
+                },
+              },
+            },
+          ],
+          connections: {
+            'Lead Intake': {
+              main: [[{ node: 'Validate Lead Email', type: 'main', index: 0 }]],
+            },
+            'Validate Lead Email': {
+              main: [[{ node: 'HubSpot2', type: 'main', index: 0 }]],
+            },
+          },
+          settings: {
+            executionOrder: 'v1',
+            errorWorkflow: 'REPLACE_WITH_ERROR_WORKFLOW_ID',
+          },
+        }),
+        `if filter ${operation}`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+      expect(highOrCriticalCount(result)).toBe(0)
+    }
+  })
+
   it('reports missing HubSpot email input distinctly from missing validation', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -655,6 +736,70 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(result, 'hubspot-contact-email-not-required')[0].problem).toContain('no email input')
   })
 
+  it('treats HubSpot resources with omitted default operations as writes', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Real export default HubSpot deal create',
+        nodes: [
+          {
+            id: 'deal',
+            name: 'HubSpot Deal',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: {
+              resource: 'deal',
+            },
+            credentials: {
+              hubspotApi: {
+                id: 'REPLACE_WITH_CREDENTIAL_ID',
+                name: 'HubSpot account',
+              },
+            },
+          },
+        ],
+        settings: {
+          executionOrder: 'v1',
+        },
+      }),
+      'default hubspot deal',
+    )
+
+    expect(result.summary.crmWriteNodes).toBe(1)
+    expect(findingsFor(result, 'external-action-missing-error-handling')[0].severity).toBe('high')
+  })
+
+  it('treats HubSpot contact list add and remove operations as writes', () => {
+    for (const operation of ['add', 'remove']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `HubSpot contact list ${operation}`,
+          nodes: [
+            {
+              id: 'list',
+              name: `HubSpot Contact List ${operation}`,
+              type: 'n8n-nodes-base.hubspot',
+              parameters: {
+                resource: 'contactList',
+                operation,
+              },
+              credentials: {
+                hubspotApi: {
+                  id: 'REPLACE_WITH_CREDENTIAL_ID',
+                  name: 'HubSpot account',
+                },
+              },
+            },
+          ],
+          settings: {
+            executionOrder: 'v1',
+          },
+        }),
+        `contact list ${operation}`,
+      )
+
+      expect(result.summary.crmWriteNodes).toBe(1)
+    }
+  })
+
   it('allows upstream email validation to satisfy legacy HubSpot contact writes', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -672,14 +817,7 @@ describe('scanWorkflowInput', () => {
             name: 'Validate Lead Email',
             type: 'n8n-nodes-base.if',
             parameters: {
-              conditions: {
-                string: [
-                  {
-                    value1: '={{ $json.email }}',
-                    operation: 'isNotEmpty',
-                  },
-                ],
-              },
+              conditions: emailGuardConditions('isNotEmpty'),
             },
           },
           {
@@ -898,14 +1036,7 @@ describe('scanWorkflowInput', () => {
             name: 'Validate Lead Email',
             type: 'n8n-nodes-base.if',
             parameters: {
-              conditions: {
-                string: [
-                  {
-                    value1: '={{ $json.email }}',
-                    operation: 'isNotEmpty',
-                  },
-                ],
-              },
+              conditions: emailGuardConditions(),
             },
           },
           {
@@ -993,6 +1124,7 @@ describe('scanWorkflowInput', () => {
     const errorFinding = findingsFor(result, 'external-action-missing-error-handling')[0]
 
     expect(errorFinding.severity).toBe('medium')
+    expect(errorFinding.plainMeaning).not.toContain('workflow-level error workflow is the only fallback')
     expect(highOrCriticalCount(result)).toBe(0)
     expect(getReportVerdict(result).label).toBe('No production blockers found')
   })
@@ -1045,6 +1177,7 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('workflow-missing-error-workflow')).toBe(false)
     expect(errorFinding.severity).toBe('medium')
     expect(errorFinding.shareSafetyImpact).toBe('worth-fixing')
+    expect(errorFinding.plainMeaning).toContain('workflow-level error workflow is the only fallback')
     expect(errorFinding.problem).toContain('settings.errorWorkflow is configured')
     expect(highOrCriticalCount(result)).toBe(0)
     expect(getReportVerdict(result).label).toBe('No production blockers found')
