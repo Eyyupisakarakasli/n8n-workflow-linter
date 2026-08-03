@@ -413,7 +413,9 @@ function appRollupCopy(ruleId: string, count: number, severity: Severity, repres
         : `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} no local error route`,
       plainMeaning: isBlocking
         ? 'These non-HTTP app nodes call services such as HubSpot, Slack, or databases, but do not show an error output branch or equivalent onError routing.'
-        : 'These non-HTTP app nodes call external systems and have no local error output branch or onError routing. Review them, especially when the workflow-level error workflow is the only fallback.',
+        : hasWorkflowFallback
+          ? 'These non-HTTP app nodes call external systems and have no local error output branch or onError routing. Review them because the workflow-level error workflow is the only fallback.'
+          : 'These non-HTTP app nodes call external systems and have no local error output branch or onError routing. Review them so expected API failures are handled deliberately.',
       fixSteps: [
         'Add error output or onError recovery for each listed app node.',
         'Route failures to Slack, email, a log, or a dead-letter path.',

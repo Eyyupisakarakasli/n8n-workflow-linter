@@ -3,7 +3,7 @@ import {
   getHttpMethod,
   getNodeTypeSuffix,
   getParameterString,
-  hubSpotContactDefaultLooksWrite,
+  hubSpotLooksWrite,
   nodeTypeIs,
   nodeSearchText,
   type NodeCategory,
@@ -527,7 +527,7 @@ export function looksLikeHubSpotContactWrite(node: N8nNode): boolean {
     text.includes('contact') ||
     text.includes('contacts')
   const explicitWrite = ['create', 'upsert'].includes(operation)
-  const impliedDefaultUpsert = hubSpotContactDefaultLooksWrite(node)
+  const impliedDefaultUpsert = !operation && hubSpotLooksWrite(node)
 
   return nodeTypeIs(node, 'hubspot') && contactContext && (explicitWrite || impliedDefaultUpsert)
 }
@@ -552,11 +552,14 @@ export function hasRequiredFieldValidationUpstream(
         categories.includes('validation') || nodeTypeIs(candidate, 'if', 'switch', 'filter', 'code', 'function')
       if (!candidateLooksLikeValidation) return false
 
+      if (hasStructuredRequiredFieldGuard(candidate, field)) return true
+
       const text = nodeSearchText(candidate)
       return (
         text.includes(field) &&
         textIncludesAny(text, [
           'isnotempty',
+          'notempty',
           'is not empty',
           'not empty',
           'exists',
@@ -571,6 +574,41 @@ export function hasRequiredFieldValidationUpstream(
     },
     context.maxGraphDepth,
   )
+}
+
+function hasStructuredRequiredFieldGuard(node: N8nNode, field: 'email'): boolean {
+  return collectFilterConditions(node.parameters).some((condition) => {
+    const leftValue = stringField(condition, 'leftValue').toLowerCase()
+    const rightValue = stringField(condition, 'rightValue').toLowerCase()
+    const operator = condition.operator
+    const operation = isRecord(operator) ? stringField(operator, 'operation').toLowerCase() : stringField(condition, 'operation').toLowerCase()
+    const operatorType = isRecord(operator) ? stringField(operator, 'type').toLowerCase() : ''
+
+    if (operatorType && operatorType !== 'string') return false
+    if (!['exists', 'notexists', 'empty', 'notempty', 'isnotempty'].includes(operation)) return false
+
+    return leftValue.includes(field) || rightValue.includes(field)
+  })
+}
+
+function collectFilterConditions(value: unknown): JsonObject[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectFilterConditions(item))
+  }
+
+  if (!isRecord(value)) return []
+
+  const collected: JsonObject[] = []
+
+  if (isRecord(value.operator)) {
+    collected.push(value)
+  }
+
+  for (const child of Object.values(value)) {
+    collected.push(...collectFilterConditions(child))
+  }
+
+  return collected
 }
 
 export function canReturnZeroRows(node: N8nNode): boolean {

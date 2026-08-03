@@ -16,8 +16,19 @@ export type NodeCategory =
   | 'unknown'
 
 const writeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const writeOperations = new Set(['create', 'update', 'upsert', 'insert', 'append', 'delete', 'send', 'post'])
-const readOperations = new Set(['get', 'getall', 'get all', 'search', 'lookup', 'find', 'read', 'list'])
+const writeOperations = new Set(['add', 'append', 'create', 'delete', 'insert', 'post', 'remove', 'send', 'update', 'upsert'])
+const readOperations = new Set([
+  'find',
+  'get',
+  'getall',
+  'get all',
+  'getrecentlycreatedupdated',
+  'list',
+  'lookup',
+  'read',
+  'search',
+  'searchbydomain',
+])
 const nonOperationalSuffixes = new Set(['stickyNote', 'noOp', 'noop'])
 
 export function getNodeTypeSuffix(node: N8nNode): string {
@@ -129,7 +140,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('write')
   }
 
-  if (suffix === 'hubspot' && !operation && (hubSpotContactDefaultLooksWrite(node) || legacyHubSpotNameLooksWrite(node.name))) {
+  if (suffix === 'hubspot' && hubSpotLooksWrite(node)) {
     categories.add('write')
   }
 
@@ -169,20 +180,16 @@ export function isReadOperation(operation: string): boolean {
 }
 
 export function legacyHubSpotNameLooksWrite(name: string): boolean {
-  return /\b(create|add|update|upsert|insert|delete)\b/i.test(name)
+  return /\b(create|add|update|upsert|insert|delete|remove)\b/i.test(name)
 }
 
-export function hubSpotContactDefaultLooksWrite(node: N8nNode): boolean {
+export function hubSpotLooksWrite(node: N8nNode): boolean {
   if (!nodeTypeIs(node, 'hubspot')) return false
 
   const operation = getParameterString(node, 'operation').toLowerCase()
-  if (operation) return false
+  if (operation) return isWriteOperation(operation)
 
-  const resource = getParameterString(node, 'resource').toLowerCase()
-  const email = getParameterString(node, 'email').trim()
-  const text = nodeSearchText(node)
-
-  return resource.includes('contact') || email.length > 0 || text.includes('contact') || text.includes('contacts')
+  return true
 }
 
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {
