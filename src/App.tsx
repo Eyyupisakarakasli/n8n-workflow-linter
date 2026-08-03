@@ -260,16 +260,26 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Local n8n reliability scanner</p>
+          <p className="eyebrow">Scan before you ship</p>
           <h1>n8n Workflow Linter</h1>
-          <p className="header-promise">Check whether an exported n8n workflow is safe to share or use in production.</p>
-          <p className="header-subline">Upload your workflow JSON and get a local safe-to-share and production-readiness report.</p>
+          <p className="header-promise">Ship AI-generated n8n workflows you can trust.</p>
+          <p className="header-subline">
+            Scan the export before it goes live: leaked credential IDs, unauthenticated webhooks, missing error routes.
+          </p>
         </div>
         <div className="privacy-badge">
           <ShieldCheck size={18} aria-hidden="true" />
-          <span>Browser-only scan. No upload, login, analytics, or storage.</span>
+          <span>Runs entirely in your browser. No upload, login, analytics, or storage.</span>
         </div>
       </header>
+
+      <aside className="leak-note">
+        <ShieldCheck size={18} aria-hidden="true" />
+        <p>
+          Asking a chatbot to review your workflow means pasting credential IDs, webhook URLs, and customer data into
+          someone else&rsquo;s server. This never leaves your tab.
+        </p>
+      </aside>
 
       <section className="workspace-grid">
         <section className="input-panel" aria-label="Workflow input">
