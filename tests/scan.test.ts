@@ -1651,6 +1651,12 @@ describe('scanWorkflowInput', () => {
     expect(highOrCriticalCount(result)).toBe(0)
   })
 
+  it('does not report a missing timezone when nothing is schedule driven', () => {
+    const result = scanWorkflowInput(fixture('clean-webhook-hubspot-upsert.json'), 'clean-no-schedule')
+
+    expect(findingsFor(result, 'default-timezone')).toHaveLength(0)
+  })
+
   it('rejects word salad but accepts 5 and 6 field cron expressions', () => {
     const wordSalad = scanWorkflowInput(
       JSON.stringify({
@@ -1697,6 +1703,14 @@ describe('scanWorkflowInput', () => {
     const risky = scanWorkflowInput(fixture('risky-invalid-cron.json'), 'risky-cron')
 
     expect(findingsFor(risky, 'invalid-cron-expression')).toHaveLength(1)
+  })
+
+  it('flags missing timezone in workflow settings', () => {
+    const clean = scanWorkflowInput(fixture('clean-timezone-set.json'), 'clean-tz')
+    const risky = scanWorkflowInput(fixture('risky-missing-timezone.json'), 'risky-tz')
+
+    expect(findingsFor(clean, 'default-timezone')).toHaveLength(0)
+    expect(findingsFor(risky, 'default-timezone')).toHaveLength(1)
   })
 
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {

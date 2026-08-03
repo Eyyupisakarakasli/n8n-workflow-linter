@@ -1,0 +1,30 @@
+{
+  "name": "Risky - Missing timezone",
+  "nodes": [
+    {
+      "id": "schedule-1",
+      "name": "Daily report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "cronExpression", "expression": "0 9 * * *"}]
+        }
+      }
+    },
+    {
+      "id": "set-1",
+      "name": "Generate report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [280, 0],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Daily report": {
+      "main": [[{"node": "Generate report", "type": "main", "index": 0}]]
+    }
+  }
+}

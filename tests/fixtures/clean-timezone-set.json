@@ -1,0 +1,21 @@
+{
+  "name": "Clean - Timezone explicitly set",
+  "nodes": [
+    {
+      "id": "schedule-1",
+      "name": "Daily report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "cronExpression", "expression": "0 9 * * *"}]
+        }
+      }
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "timezone": "Europe/Istanbul"
+  }
+}

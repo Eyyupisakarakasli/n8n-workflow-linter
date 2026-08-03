@@ -1071,6 +1071,46 @@ const invalidCronRule: RuleDefinition = {
   },
 }
 
+const defaultTimezoneRule: RuleDefinition = {
+  id: 'default-timezone',
+  title: 'Workflow timezone is not explicitly set',
+  plainTitle: 'The workflow does not set a timezone',
+  plainMeaning:
+    'No timezone was found in workflow settings. Scheduled triggers and time-based filters will use the server default, which may differ from the expected production timezone.',
+  fixSteps: [
+    'Open workflow settings and set the timezone explicitly.',
+    'Export again and re-run the scan to confirm.',
+    'Align timezone with the production business hours.',
+  ],
+  shareSafetyImpact: 'minor',
+  category: 'Hygiene',
+  defaultSeverity: 'info',
+  run(context) {
+    // Only meaningful when something in the workflow actually depends on wall-clock
+    // time. Reporting it on every export fires on 100% of inputs and carries no signal.
+    if (nodesInCategory(context, 'schedule').length === 0) return []
+
+    const settings = context.originalWorkflow.raw.settings
+    const record = settings && typeof settings === 'object' ? (settings as Record<string, unknown>) : undefined
+    const timezone = record?.timezone
+    const hasTimezone = typeof timezone === 'string' && timezone.trim().length > 0
+    if (hasTimezone) return []
+
+    return [
+      makeFinding({
+        rule: defaultTimezoneRule,
+        nodes: [],
+        confidence: 'high',
+        problem: record
+          ? 'settings.timezone is empty or missing while the workflow has a scheduled trigger.'
+          : 'The export has no workflow settings object, so no timezone is set for the scheduled trigger.',
+        whyItMatters:
+          'A scheduled trigger without an explicit timezone runs on the server default zone, so the same export fires at a different local hour on a different instance.',
+      }),
+    ]
+  },
+}
+
 function safeSwitchRules(parameters: Record<string, unknown>): unknown[] {
   const rules = parameters.rules
   if (Array.isArray(rules)) return rules
@@ -1171,6 +1211,7 @@ export const allRules: RuleDefinition[] = [
   switchFallbackRule,
   ifUnhandledBranchRule,
   invalidCronRule,
+  defaultTimezoneRule,
   disabledNodeRule,
 ]
 
