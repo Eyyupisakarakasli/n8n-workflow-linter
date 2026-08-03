@@ -1,0 +1,23 @@
+{
+  "name": "Risky - Invalid cron expression",
+  "nodes": [
+    {
+      "id": "schedule-invalid",
+      "name": "Bad schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "not a cron"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {}
+}

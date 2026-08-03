@@ -1651,6 +1651,54 @@ describe('scanWorkflowInput', () => {
     expect(highOrCriticalCount(result)).toBe(0)
   })
 
+  it('rejects word salad but accepts 5 and 6 field cron expressions', () => {
+    const wordSalad = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Word salad cron',
+        nodes: [
+          {
+            id: 'sched',
+            name: 'Bad schedule',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            typeVersion: 1,
+            position: [0, 0],
+            parameters: { rule: { interval: [{ field: 'cronExpression', expression: 'every day at nine am' }] } },
+          },
+        ],
+        connections: {},
+        settings: { executionOrder: 'v1', timezone: 'Europe/Istanbul' },
+      }),
+      'word-salad',
+    )
+    const withSeconds = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Six field cron',
+        nodes: [
+          {
+            id: 'sched',
+            name: 'Good schedule',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            typeVersion: 1,
+            position: [0, 0],
+            parameters: { rule: { interval: [{ field: 'cronExpression', expression: '0 0 9 * * 1-5' }] } },
+          },
+        ],
+        connections: {},
+        settings: { executionOrder: 'v1', timezone: 'Europe/Istanbul' },
+      }),
+      'six-field',
+    )
+
+    expect(findingsFor(wordSalad, 'invalid-cron-expression')).toHaveLength(1)
+    expect(findingsFor(withSeconds, 'invalid-cron-expression')).toHaveLength(0)
+  })
+
+  it('flags invalid cron expressions', () => {
+    const risky = scanWorkflowInput(fixture('risky-invalid-cron.json'), 'risky-cron')
+
+    expect(findingsFor(risky, 'invalid-cron-expression')).toHaveLength(1)
+  })
+
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {
     const demoSourcePath = fileURLToPath(new URL('../src/data/demoWorkflows.ts', import.meta.url))
     const demoSource = readFileSync(demoSourcePath, 'utf8')

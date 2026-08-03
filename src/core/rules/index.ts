@@ -1040,12 +1040,76 @@ const ifUnhandledBranchRule: RuleDefinition = {
   },
 }
 
+const invalidCronRule: RuleDefinition = {
+  id: 'invalid-cron-expression',
+  title: 'Invalid or suspicious cron expression',
+  plainTitle: 'The schedule trigger uses a broken or unusual cron pattern',
+  plainMeaning: 'The scheduled trigger has a cron expression that could be malformed or unlikely intentional.',
+  fixSteps: [
+    'Double-check the cron expression in the Schedule Trigger node.',
+    'Use a standard 5-field cron expression for production schedules.',
+    'Test with a manual execution before relying on the schedule in production.',
+  ],
+  shareSafetyImpact: 'worth-fixing',
+  category: 'Reliability',
+  defaultSeverity: 'medium',
+  run(context) {
+    return nodesInCategory(context, 'schedule')
+      .filter((n) => {
+        const raw = getCronExpression(n)
+        return raw.length > 0 && !isValidCron(raw)
+      })
+      .map((n) =>
+        makeFinding({
+          rule: invalidCronRule,
+          node: n,
+          confidence: 'medium',
+          problem: `Cron expression ${JSON.stringify(getCronExpression(n))} looks malformed.`,
+          whyItMatters: 'A broken cron expression can cause schedules to never fire or fire far more often than intended.',
+        }),
+      )
+  },
+}
+
 function safeSwitchRules(parameters: Record<string, unknown>): unknown[] {
   const rules = parameters.rules
   if (Array.isArray(rules)) return rules
   const dataRules = (parameters as Record<string, unknown>).dataRules
   if (Array.isArray(dataRules)) return dataRules
   return []
+}
+
+function getCronExpression(node: N8nNode): string {
+  const params = node.parameters as Record<string, unknown>
+  const field = (
+    params.cronExpression ??
+    params.cron ??
+    params.value ??
+    findCronInRule(params.rule) ??
+    ''
+  )
+  return typeof field === 'string' ? field.trim() : ''
+}
+
+function findCronInRule(rule: unknown): string | undefined {
+  if (!Array.isArray((rule as Record<string, unknown>)?.interval)) return undefined
+  for (const item of (rule as Record<string, unknown>).interval as Array<Record<string, unknown>>) {
+    if (item.field === 'cronExpression' && typeof item.expression === 'string') return item.expression
+  }
+  return undefined
+}
+
+// n8n accepts 5-field (minute-precision) and 6-field (with seconds) cron. Validate the
+// character shape of each field instead of only counting words, otherwise any five-word
+// string such as "every day at nine am" passes as a valid expression.
+const CRON_FIELD = /^[*?]$|^[0-9*/,\-#LW]+$/i
+
+function isValidCron(expression: string): boolean {
+  const trimmed = expression.trim()
+  if (!trimmed) return false
+  const fields = trimmed.split(/\s+/)
+  if (fields.length < 5 || fields.length > 6) return false
+  return fields.every((field) => CRON_FIELD.test(field))
 }
 
 const disabledNodeRule: RuleDefinition = {
@@ -1106,6 +1170,7 @@ export const allRules: RuleDefinition[] = [
   defaultNodeNamesRule,
   switchFallbackRule,
   ifUnhandledBranchRule,
+  invalidCronRule,
   disabledNodeRule,
 ]
 
