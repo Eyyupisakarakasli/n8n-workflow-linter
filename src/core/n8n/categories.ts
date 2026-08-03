@@ -17,6 +17,24 @@ export type NodeCategory =
 
 const writeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const writeOperations = new Set(['add', 'append', 'create', 'delete', 'insert', 'post', 'remove', 'send', 'submit', 'update', 'upsert'])
+const externalWriteSuffixes = new Set([
+  'airtable',
+  'emailSend',
+  'gmail',
+  'googleSheets',
+  'hubspot',
+  'mongoDb',
+  'mysql',
+  'notion',
+  'openAi',
+  'pipedrive',
+  'postgres',
+  'salesforce',
+  'slack',
+  'supabase',
+  'telegram',
+  'zohoCrm',
+].map((suffix) => suffix.toLowerCase()))
 const readOperations = new Set([
   'find',
   'get',
@@ -144,7 +162,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('write')
   }
 
-  if (!categories.has('write') && resource && isWriteOperation(operation)) {
+  if (!categories.has('write') && looksLikeExternalWriteOperation(node, suffix, categories, operation, resource)) {
     categories.add('write')
   }
 
@@ -202,6 +220,21 @@ function hubSpotDefaultOperationLooksWrite(resource: string): boolean {
 
 export function hasCategory(node: N8nNode, category: NodeCategory): boolean {
   return categorizeNode(node).includes(category)
+}
+
+function looksLikeExternalWriteOperation(
+  node: N8nNode,
+  suffix: string,
+  categories: Set<NodeCategory>,
+  operation: string,
+  resource: string,
+): boolean {
+  if (!isWriteOperation(operation)) return false
+  if (resource) return true
+  if (externalWriteSuffixes.has(suffix)) return true
+  if (categories.has('transform') || categories.has('validation') || categories.has('security')) return false
+
+  return Object.keys(node.credentials).length > 0
 }
 
 function isRecord(value: unknown): value is JsonObject {

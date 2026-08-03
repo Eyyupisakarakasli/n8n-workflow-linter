@@ -405,6 +405,42 @@ function appRollupCopy(ruleId: string, count: number, severity: Severity, repres
   if (ruleId === 'external-action-missing-error-handling') {
     const isBlocking = severity === 'critical' || severity === 'high'
     const hasWorkflowFallback = representativeProblem.includes('settings.errorWorkflow is configured')
+    const isSilentTerminalWrite = representativeProblem.includes('terminal external write')
+    const isSilentContinue = isSilentTerminalWrite || representativeProblem.includes('continue on the regular output')
+
+    if (isSilentTerminalWrite) {
+      return {
+        title: 'External app write can fail silently',
+        plainTitle: `${count} terminal external write ${hasOrHave(count)} silent failure risk`,
+        plainMeaning:
+          'These external write nodes continue on the regular output when they fail and have no downstream node that can inspect, log, or alert on that failure.',
+        fixSteps: [
+          'Do not use Continue Using Regular Output on terminal writes unless another path records the failure.',
+          'Route failures to an error output, alert, log, or dead-letter path.',
+          'Enable retries for temporary API failures before alerting or stopping the workflow.',
+        ],
+        problem: `${count} terminal external write ${hasOrHave(count)} set to continue on the regular output when it fails.`,
+        whyItMatters:
+          'Because these nodes continue instead of throwing, a workflow-level error workflow will not fire. A failed append, insert, or update can disappear with no downstream signal.',
+      }
+    }
+
+    if (isSilentContinue) {
+      return {
+        title: 'External app nodes continue failures on the regular output',
+        plainTitle: `${count} external app ${pluralize(count, 'node')} continue failures as regular output`,
+        plainMeaning:
+          'These external app nodes continue on the regular output when they fail. That is only safe when downstream nodes explicitly inspect and handle the failure payload.',
+        fixSteps: [
+          'Verify that downstream nodes explicitly inspect the failure output before treating it as success.',
+          'Prefer an error output branch for failures that should alert, retry, or stop.',
+          'Add a dead-letter or logging path for failures that are intentionally skipped.',
+        ],
+        problem: `${count} external app ${pluralize(count, 'node')} ${hasOrHave(count)} set to continue on the regular output when failing.`,
+        whyItMatters:
+          'Continue-on-regular-output is useful for deliberate fallback paths, but without an explicit downstream check it can turn an API failure into normal-looking data.',
+      }
+    }
 
     return {
       title: 'External app nodes have no error handling',
@@ -450,6 +486,8 @@ function appRollupCopy(ruleId: string, count: number, severity: Severity, repres
 
 function appRollupFlavor(finding: RiskFinding): string {
   if (finding.ruleId !== 'external-action-missing-error-handling') return 'default'
+  if (finding.problem.includes('terminal external write')) return 'silent-terminal-write'
+  if (finding.problem.includes('continue on the regular output')) return 'silent-continue'
   return finding.problem.includes('settings.errorWorkflow is configured') ? 'workflow-fallback' : 'default'
 }
 

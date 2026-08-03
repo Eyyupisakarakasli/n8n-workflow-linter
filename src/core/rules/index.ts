@@ -350,8 +350,46 @@ const externalActionErrorRule: RuleDefinition = {
       .map((node) => {
         const isWriteNode = context.categoriesByNodeId[node.id]?.includes('write') ?? false
         const isHubSpotContactWrite = looksLikeHubSpotContactWrite(node)
-        const severity = isWriteNode && !hasWorkflowFallback ? 'high' : 'medium'
-        const hasOnlyWorkflowFallback = !hasErrorHandling(context, node) && hasWorkflowFallback
+        const silentlyContinues = hasSilentErrorContinue(node)
+        const isTerminalNode = (context.graph.outgoingById[node.id]?.length ?? 0) === 0
+        const silentTerminalWrite = isWriteNode && silentlyContinues && isTerminalNode
+        const severity = silentTerminalWrite || (isWriteNode && !hasWorkflowFallback) ? 'high' : 'medium'
+        const hasOnlyWorkflowFallback = !silentlyContinues && hasWorkflowFallback
+        const silentContinueFixSteps = silentTerminalWrite
+          ? [
+              'Do not use Continue Using Regular Output on a terminal write unless another path records the failure.',
+              'Route failures to an error output, alert, log, or dead-letter path.',
+              'Enable retries for temporary API failures before alerting or stopping the workflow.',
+            ]
+          : [
+              'Verify that downstream nodes explicitly inspect the failure output before treating it as success.',
+              'Prefer an error output branch for failures that should alert, retry, or stop.',
+              'Add a dead-letter or logging path for failures that are intentionally skipped.',
+            ]
+        const hubSpotPlainTitle = isHubSpotContactWrite
+          ? severity === 'high'
+            ? 'HubSpot contact write can fail without a recovery path'
+            : 'HubSpot contact write has no local recovery path'
+          : undefined
+        const hubSpotPlainMeaning = isHubSpotContactWrite
+          ? hasOnlyWorkflowFallback
+            ? 'This HubSpot contact write has no local error output branch or onError routing, but the workflow has a global error workflow fallback.'
+            : 'This HubSpot contact write has no error output branch or equivalent error routing. Conflicts, validation failures, or API errors can stop the workflow instead of being handled deliberately.'
+          : undefined
+        const hubSpotProblem = isHubSpotContactWrite
+          ? hasOnlyWorkflowFallback
+            ? 'This HubSpot contact write has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
+            : 'This HubSpot contact write has no error output branch or onError recovery setting.'
+          : undefined
+        const hubSpotWhyItMatters = isHubSpotContactWrite
+          ? 'HubSpot contact writes can fail on conflicts, validation errors, credentials, or rate limits. A replayed webhook should produce a controlled branch, not an unexplained failed execution.'
+          : undefined
+        const genericProblem = hasOnlyWorkflowFallback
+          ? 'This external app node has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
+          : 'This external app node has no error output branch or onError recovery setting.'
+        const genericWhyItMatters = isWriteNode
+          ? 'External API write failures are normal in production. Without a recovery path, the failed node can stop the workflow with no local handling.'
+          : 'Read-only app calls can still fail or return partial data, but they are usually worth fixing rather than production blockers when they do not perform writes.'
 
         return makeFinding({
           rule: externalActionErrorRule,
@@ -359,28 +397,27 @@ const externalActionErrorRule: RuleDefinition = {
           severity,
           confidence: 'high',
           shareSafetyImpact: severity === 'high' ? 'must-fix' : 'worth-fixing',
-          plainTitle: isHubSpotContactWrite
-            ? severity === 'high'
-              ? 'HubSpot contact write can fail without a recovery path'
-              : 'HubSpot contact write has no local recovery path'
-            : undefined,
-          plainMeaning: isHubSpotContactWrite
-            ? hasOnlyWorkflowFallback
-              ? 'This HubSpot contact write has no local error output branch or onError routing, but the workflow has a global error workflow fallback.'
-              : 'This HubSpot contact write has no error output branch or equivalent error routing. Conflicts, validation failures, or API errors can stop the workflow instead of being handled deliberately.'
-            : undefined,
-          problem: isHubSpotContactWrite
-            ? hasOnlyWorkflowFallback
-              ? 'This HubSpot contact write has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
-              : 'This HubSpot contact write has no error output branch or onError recovery setting.'
-            : hasOnlyWorkflowFallback
-              ? 'This external app node has no local error output branch or onError recovery setting; settings.errorWorkflow is configured as the fallback.'
-              : 'This external app node has no error output branch or onError recovery setting.',
-          whyItMatters: isHubSpotContactWrite
-            ? 'HubSpot contact writes can fail on conflicts, validation errors, credentials, or rate limits. A replayed webhook should produce a controlled branch, not an unexplained failed execution.'
-            : isWriteNode
-              ? 'External API write failures are normal in production. Without a recovery path, the failed node can stop the workflow with no local handling.'
-              : 'Read-only app calls can still fail or return partial data, but they are usually worth fixing rather than production blockers when they do not perform writes.',
+          plainTitle: silentTerminalWrite
+            ? 'External write can fail silently at the end of the workflow'
+            : silentlyContinues
+              ? 'External app node continues failures on the regular output'
+              : hubSpotPlainTitle,
+          plainMeaning: silentTerminalWrite
+            ? 'This external write is configured to continue on the regular output when it fails, and it has no downstream node that can inspect, log, or alert on that failure.'
+            : silentlyContinues
+              ? 'This external app node is configured to continue on the regular output when it fails. That is only safe when downstream nodes explicitly inspect and handle the failure payload.'
+              : hubSpotPlainMeaning,
+          fixSteps: silentlyContinues ? silentContinueFixSteps : undefined,
+          problem: silentTerminalWrite
+            ? 'This terminal external write is set to continue on the regular output when it fails, so the run can appear successful even when the write did not happen.'
+            : silentlyContinues
+              ? 'This external app node is set to continue on the regular output when it fails.'
+              : (hubSpotProblem ?? genericProblem),
+          whyItMatters: silentTerminalWrite
+            ? 'Because the node continues instead of throwing, a workflow-level error workflow will not fire. A failed append, insert, or update can disappear with no downstream signal.'
+            : silentlyContinues
+              ? 'Continue-on-regular-output is useful for deliberate fallback paths, but without an explicit downstream check it can turn an API failure into normal-looking data.'
+              : (hubSpotWhyItMatters ?? genericWhyItMatters),
         })
       })
   },
