@@ -1,0 +1,65 @@
+{
+  "name": "Risky - IF missing false branch",
+  "nodes": [
+    {
+      "id": "webhook-in",
+      "name": "Incoming webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "incoming",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "id": "if-risk",
+      "name": "Has email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [280, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "email-not-empty",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty"}
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "hubspot-write",
+      "name": "Create HubSpot contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [560, 0],
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "email": "={{ $json.email }}"
+      }
+    }
+  ],
+  "connections": {
+    "Incoming webhook": {
+      "main": [[{"node": "Has email?", "type": "main", "index": 0}]]
+    },
+    "Has email?": {
+      "main": [
+        [{"node": "Create HubSpot contact", "type": "main", "index": 0}]
+      ]
+    }
+  }
+}

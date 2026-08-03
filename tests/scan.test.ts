@@ -1630,6 +1630,27 @@ describe('scanWorkflowInput', () => {
     expect(findingsFor(risky, 'switch-missing-default')[0]?.severity).toBe('medium')
   })
 
+  it('flags IF nodes with no false branch', () => {
+    const clean = scanWorkflowInput(fixture('clean-if-both-branches.json'), 'clean-if')
+    const risky = scanWorkflowInput(fixture('risky-if-no-false-branch.json'), 'risky-if')
+
+    expect(findingsFor(clean, 'if-missing-false-branch')).toHaveLength(0)
+    expect(findingsFor(risky, 'if-missing-false-branch')).toHaveLength(1)
+  })
+
+  it('keeps a validation gate before a write out of the verdict', () => {
+    // webhook-missing-validation requires a validation step before a production write,
+    // and that shape has an empty false branch by design. The IF notice must stay info
+    // so the scanner never penalises the pattern it asks for elsewhere.
+    const result = scanWorkflowInput(fixture('clean-webhook-hubspot-upsert.json'), 'clean-validation-gate')
+    const ifNotices = findingsFor(result, 'if-missing-false-branch')
+
+    expect(ifNotices).toHaveLength(1)
+    expect(ifNotices[0]?.severity).toBe('info')
+    expect(result.findings.filter((finding) => finding.severity !== 'info')).toHaveLength(0)
+    expect(highOrCriticalCount(result)).toBe(0)
+  })
+
   it('keeps demo workflows separate from test fixtures and verifies their main findings', () => {
     const demoSourcePath = fileURLToPath(new URL('../src/data/demoWorkflows.ts', import.meta.url))
     const demoSource = readFileSync(demoSourcePath, 'utf8')

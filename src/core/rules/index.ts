@@ -1002,6 +1002,44 @@ const switchFallbackRule: RuleDefinition = {
   },
 }
 
+const ifUnhandledBranchRule: RuleDefinition = {
+  id: 'if-missing-false-branch',
+  title: 'IF node has no connected false output branch',
+  plainTitle: 'An IF step has no false-branch path',
+  plainMeaning:
+    'This IF node has a connected true branch but nothing on the false output. Items failing the condition stop here. For a validation gate that is usually intended; it is listed so you can confirm the dropped items do not need logging or an alert.',
+  fixSteps: [
+    'Confirm that silently dropping non-matching items is the intended behaviour.',
+    'If dropped items matter, connect the false output to a log, notification, or dead-letter path.',
+    'If the drop is intentional, add a Sticky Note so the next reader knows it was a decision.',
+  ],
+  shareSafetyImpact: 'minor',
+  category: 'Reliability',
+  // Info, not medium: a validation IF with an empty false branch is the pattern
+  // webhook-missing-validation asks for. Flagging it as a risk would penalise the
+  // shape this scanner requires elsewhere. Report it, do not let it drive the verdict.
+  defaultSeverity: 'info',
+  run(context) {
+    return context.workflow.nodes
+      .filter((n) => nodeTypeIs(n, 'if'))
+      .filter((n) => {
+        const outgoing = context.graph.outgoingById[n.id] ?? []
+        const hasFalseBranch = outgoing.some((e) => e.outputIndex === 1)
+        return outgoing.length > 0 && !hasFalseBranch
+      })
+      .map((n) =>
+        makeFinding({
+          rule: ifUnhandledBranchRule,
+          node: n,
+          confidence: 'medium',
+          problem: 'This IF node has no connected false output branch.',
+          whyItMatters:
+            'Items that fail the condition end here with no log or alert. That is fine for a deliberate filter, but it hides data loss when the drop was not intended.',
+        }),
+      )
+  },
+}
+
 function safeSwitchRules(parameters: Record<string, unknown>): unknown[] {
   const rules = parameters.rules
   if (Array.isArray(rules)) return rules
@@ -1067,6 +1105,7 @@ export const allRules: RuleDefinition[] = [
   disconnectedCriticalNodeRule,
   defaultNodeNamesRule,
   switchFallbackRule,
+  ifUnhandledBranchRule,
   disabledNodeRule,
 ]
 
