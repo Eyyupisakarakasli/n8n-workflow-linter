@@ -127,11 +127,7 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
     categories.add('transform')
   }
   if (
-    ['if', 'switch', 'filter'].includes(suffix) ||
-    text.includes('validate') ||
-    text.includes('validation') ||
-    text.includes('required') ||
-    text.includes('schema')
+    ['if', 'switch', 'filter'].includes(suffix)
   ) {
     categories.add('validation')
   }

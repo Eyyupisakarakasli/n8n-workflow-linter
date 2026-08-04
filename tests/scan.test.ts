@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { categorizeNode } from '../src/core/n8n/categories'
+import { categorizeNode, isReadOperation, isWriteOperation, legacyHubSpotNameLooksWrite } from '../src/core/n8n/categories'
 import { parseWorkflow } from '../src/core/n8n/parse'
 import { buildFixChecklist, buildMarkdownReport, getReportVerdict } from '../src/core/report/markdown'
 import { ScannerInputError, scanWorkflowInput, type ScanResult } from '../src/core/scan'
+import { hasPaginationSignal, looksLikeListEndpoint } from '../src/core/rules/helpers'
 import { demoWorkflows } from '../src/data/demoWorkflows'
 
 const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url))
@@ -1865,5 +1866,30 @@ describe('scanWorkflowInput', () => {
 
     expect(packageJson.scripts?.['test:privacy']).toContain('npm run build')
     expect(packageJson.scripts?.['test:privacy']).toContain('scripts/privacy-scan.mjs')
+  })
+
+  it('flags pagination-less list endpoints but not paginated ones', () => {
+    const listNode = { id: 'n1', name: 'List Users', type: 'n8n-nodes-base.httpRequest', parameters: { method: 'GET', url: 'https://api.example.com/users' }, credentials: {} } as any
+    const paginatedNode = { ...listNode, id: 'n2', name: 'Paginated List', parameters: { ...listNode.parameters, returnAll: true } }
+
+    expect(looksLikeListEndpoint(listNode)).toBe(true)
+    expect(hasPaginationSignal(listNode)).toBe(false)
+    expect(looksLikeListEndpoint(paginatedNode)).toBe(true)
+    expect(hasPaginationSignal(paginatedNode)).toBe(true)
+  })
+
+  it('recognises legacy HubSpot create-contact exports via name heuristic', () => {
+    expect(legacyHubSpotNameLooksWrite('create new contact')).toBe(true)
+    expect(legacyHubSpotNameLooksWrite('add contact')).toBe(true)
+    expect(legacyHubSpotNameLooksWrite('search existing contacts')).toBe(false)
+    expect(legacyHubSpotNameLooksWrite('get contact')).toBe(false)
+  })
+
+  it('distinguishes read from write HubSpot operations', () => {
+    expect(isReadOperation('search')).toBe(true)
+    expect(isReadOperation('getAll')).toBe(true)
+    expect(isReadOperation('create')).toBe(false)
+    expect(isWriteOperation('create')).toBe(true)
+    expect(isWriteOperation('upsert')).toBe(true)
   })
 })
