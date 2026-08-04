@@ -126,8 +126,20 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
   ) {
     categories.add('transform')
   }
+  // Wording signals are gated on node type on purpose. nodeSearchText serialises node
+  // parameters, so an ungated text check let unrelated nodes claim the validation
+  // category: n8n's Postgres node ships a standard `schema` parameter, and request
+  // bodies routinely contain "required". Custom validation genuinely lives in Code and
+  // Function nodes, so the wording is only trusted there, which also matches what
+  // hasRequiredFieldValidationUpstream already accepts.
+  const codeLikeSuffix = ['code', 'function', 'functionitem'].includes(suffix)
   if (
-    ['if', 'switch', 'filter'].includes(suffix)
+    ['if', 'switch', 'filter'].includes(suffix) ||
+    (codeLikeSuffix &&
+      (text.includes('validate') ||
+        text.includes('validation') ||
+        text.includes('required') ||
+        text.includes('schema')))
   ) {
     categories.add('validation')
   }

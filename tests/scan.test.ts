@@ -1892,4 +1892,98 @@ describe('scanWorkflowInput', () => {
     expect(isWriteOperation('create')).toBe(true)
     expect(isWriteOperation('upsert')).toBe(true)
   })
+
+  it('drops the normalization findings only when a normalizer really sits upstream', () => {
+    // Guards hasNormalizerUpstream. Both workflows are identical apart from the Set node
+    // between the webhook and the HubSpot write, so the only thing that can change the
+    // normalization findings is whether that node is recognised as a normalizer.
+    const build = (normalizes: boolean) =>
+      JSON.stringify({
+        name: normalizes ? 'Normalized lead' : 'Raw lead',
+        nodes: [
+          {
+            id: 'wh',
+            name: 'Receive Lead Webhook',
+            type: 'n8n-nodes-base.webhook',
+            typeVersion: 2,
+            position: [0, 0],
+            parameters: { path: 'lead-intake', httpMethod: 'POST', authentication: 'headerAuth' },
+          },
+          {
+            id: 'prep',
+            name: 'Prepare lead fields',
+            type: 'n8n-nodes-base.set',
+            typeVersion: 3,
+            position: [240, 0],
+            parameters: {
+              assignments: {
+                assignments: normalizes
+                  ? [
+                      { name: 'email', value: '={{ $json.email.trim().toLowerCase() }}' },
+                      { name: 'phone', value: "={{ String($json.phone || '').replace(/[^0-9+]/g, '') }}" },
+                    ]
+                  : [{ name: 'stage', value: 'new' }],
+              },
+            },
+          },
+          {
+            id: 'hs',
+            name: 'Upsert HubSpot Contact By Email',
+            type: 'n8n-nodes-base.hubspot',
+            typeVersion: 2,
+            position: [480, 0],
+            parameters: {
+              resource: 'contact',
+              operation: 'upsert',
+              email: '={{ $json.email }}',
+              additionalFields: { phone: '={{ $json.phone }}' },
+            },
+            credentials: { hubspotApi: { id: 'REPLACE_WITH_CREDENTIAL_ID', name: 'HubSpot account' } },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+          },
+        ],
+        connections: {
+          'Receive Lead Webhook': { main: [[{ node: 'Prepare lead fields', type: 'main', index: 0 }]] },
+          'Prepare lead fields': { main: [[{ node: 'Upsert HubSpot Contact By Email', type: 'main', index: 0 }]] },
+        },
+        settings: { executionOrder: 'v1', errorWorkflow: 'REPLACE_WITH_ERROR_WORKFLOW_ID' },
+      })
+
+    const normalized = scanWorkflowInput(build(true), 'normalized')
+    const raw = scanWorkflowInput(build(false), 'raw')
+
+    expect(findingsFor(normalized, 'email-not-normalized-before-hubspot')).toHaveLength(0)
+    expect(findingsFor(normalized, 'phone-not-normalized-before-hubspot')).toHaveLength(0)
+    expect(findingsFor(raw, 'email-not-normalized-before-hubspot')).toHaveLength(1)
+    expect(findingsFor(raw, 'phone-not-normalized-before-hubspot')).toHaveLength(1)
+  })
+
+  it('trusts validation wording only on code-like nodes', () => {
+    // nodeSearchText serialises parameters, so wording signals must not let an unrelated
+    // node claim the validation category. A Postgres node ships a standard `schema`
+    // parameter; a Code node that throws on a missing field is real validation.
+    const postgres = categorizeNode({
+      id: 'pg',
+      name: 'Load lookup rows',
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2,
+      position: [0, 0],
+      parameters: { operation: 'select', schema: 'public', table: 'leads' },
+      credentials: {},
+    } as never)
+    const codeGuard = categorizeNode({
+      id: 'code',
+      name: 'Validate payload',
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [0, 0],
+      parameters: { jsCode: "if (!$json.email) { throw new Error('email is required'); }" },
+      credentials: {},
+    } as never)
+
+    expect(postgres).not.toContain('validation')
+    expect(codeGuard).toContain('validation')
+  })
 })
