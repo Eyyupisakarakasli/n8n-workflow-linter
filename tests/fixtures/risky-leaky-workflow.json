@@ -6,7 +6,10 @@
       "name": "Manual Leak Test",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {}
     },
     {
@@ -14,7 +17,10 @@
       "name": "Build Customer API Header",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "jsCode": "const apiKey = \"7f3Ka92mFhs82nXqL4vZ\";\nconst safeToken = \"REPLACE_WITH_TOKEN\";\nconst header = \"Bearer Zq7Lp3w9Kd82mVn4Xq7Lp3w\";\nreturn [{ json: { apiKey, header } }];"
       }
@@ -24,7 +30,10 @@
       "name": "Send Customer API Request",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [560, 0],
+      "position": [
+        560,
+        0
+      ],
       "parameters": {
         "method": "GET",
         "url": "https://api.example.com/v1/items?api_key=9Kd82mVn4Xq7Lp3w&limit=50",
@@ -54,7 +63,10 @@
       "name": "Call OpenAI With Literal Key",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [840, 0],
+      "position": [
+        840,
+        0
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
@@ -74,7 +86,10 @@
       "name": "Fetch Safely",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1120, 0],
+      "position": [
+        1120,
+        0
+      ],
       "parameters": {
         "method": "GET",
         "url": "https://api.example.com/v1/safe?api_key={{ $credentials.apiKey }}",
@@ -139,5 +154,8 @@
         }
       }
     ]
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

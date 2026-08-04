@@ -6,7 +6,10 @@
       "name": "Incoming webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "path": "incoming",
         "httpMethod": "POST",
@@ -18,7 +21,10 @@
       "name": "Has email?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -32,7 +38,10 @@
               "id": "email-not-empty",
               "leftValue": "={{ $json.email }}",
               "rightValue": "",
-              "operator": {"type": "string", "operation": "notEmpty"}
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
             }
           ],
           "combinator": "and"
@@ -44,7 +53,10 @@
       "name": "Create HubSpot contact",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [560, 0],
+      "position": [
+        560,
+        0
+      ],
       "parameters": {
         "resource": "contact",
         "operation": "create",
@@ -54,12 +66,29 @@
   ],
   "connections": {
     "Incoming webhook": {
-      "main": [[{"node": "Has email?", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Has email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Has email?": {
       "main": [
-        [{"node": "Create HubSpot contact", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Create HubSpot contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

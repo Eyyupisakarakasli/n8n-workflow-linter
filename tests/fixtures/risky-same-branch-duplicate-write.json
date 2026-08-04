@@ -6,7 +6,10 @@
       "name": "Receive Lead For Duplicate Write",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "path": "duplicate-lead",
         "httpMethod": "POST",
@@ -18,7 +21,10 @@
       "name": "Validate Duplicate Write Lead",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [240, 0],
+      "position": [
+        240,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -48,7 +54,10 @@
       "name": "Create First HubSpot Contact",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
       "parameters": {
         "resource": "contact",
         "operation": "create",
@@ -66,7 +75,10 @@
       "name": "Create Second HubSpot Contact",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [720, 0],
+      "position": [
+        720,
+        0
+      ],
       "parameters": {
         "resource": "contact",
         "operation": "create",
@@ -114,5 +126,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

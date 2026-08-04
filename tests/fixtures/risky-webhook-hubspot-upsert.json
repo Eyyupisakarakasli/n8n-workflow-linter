@@ -6,7 +6,10 @@
       "name": "Test Webhook Lead Intake",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "path": "test-lead-intake",
         "httpMethod": "POST",
@@ -19,7 +22,10 @@
       "name": "Create or Update HubSpot Contact",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "resource": "contact",
         "operation": "upsert",
@@ -49,5 +55,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

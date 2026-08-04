@@ -6,7 +6,10 @@
       "name": "Production Notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [0, -180],
+      "position": [
+        0,
+        -180
+      ],
       "parameters": {
         "content": "Draft only: Create HubSpot Contact, HTTP Request POST, x-api-key."
       }
@@ -16,7 +19,10 @@
       "name": "Disabled HTTP Request Draft",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "disabled": true,
       "parameters": {
         "method": "POST",
@@ -28,7 +34,10 @@
       "name": "Disabled HubSpot Create Draft",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "disabled": true,
       "parameters": {
         "resource": "contact",
@@ -49,5 +58,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

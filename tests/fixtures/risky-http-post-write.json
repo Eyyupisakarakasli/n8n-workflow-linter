@@ -6,7 +6,10 @@
       "name": "Receive Order Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "path": "orders",
         "httpMethod": "POST",
@@ -18,7 +21,10 @@
       "name": "Create Order In External API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://api.example.com/orders",
@@ -43,5 +49,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

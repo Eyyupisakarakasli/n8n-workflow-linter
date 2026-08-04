@@ -6,7 +6,10 @@
       "name": "Lead Sync Every Minute",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -23,7 +26,10 @@
       "name": "Fetch Recent Leads",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "method": "GET",
         "url": "https://api.example.com/leads"
@@ -34,7 +40,10 @@
       "name": "Create or Update HubSpot Contact From Lead",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [560, 0],
+      "position": [
+        560,
+        0
+      ],
       "parameters": {
         "resource": "contact",
         "operation": "upsert",
@@ -71,5 +80,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

@@ -6,7 +6,10 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "path": "default-test",
         "authentication": "headerAuth"
@@ -17,7 +20,10 @@
       "name": "Code",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 0],
+      "position": [
+        280,
+        0
+      ],
       "parameters": {
         "jsCode": "return items;"
       }
@@ -27,7 +33,10 @@
       "name": "HTTP Request",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [560, 0],
+      "position": [
+        560,
+        0
+      ],
       "parameters": {
         "method": "GET",
         "url": "https://api.example.com/status",
@@ -63,5 +72,8 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1"
   }
 }

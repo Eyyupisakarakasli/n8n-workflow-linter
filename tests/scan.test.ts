@@ -1788,14 +1788,14 @@ describe('scanWorkflowInput', () => {
 
   it('flags missing timezone in workflow settings', () => {
     const clean = scanWorkflowInput(fixture('clean-timezone-set.json'), 'clean-tz')
-    const risky = scanWorkflowInput(fixture('risky-missing-timezone.json'), 'risky-tz')
+    const risky = scanWorkflowInput(fixture('clean-schedule-without-timezone.json'), 'schedule-no-tz')
 
     expect(findingsFor(clean, 'default-timezone')).toHaveLength(0)
     expect(findingsFor(risky, 'default-timezone')).toHaveLength(1)
   })
 
   it('flags monolithic workflows with 50+ active nodes', () => {
-    const large = scanWorkflowInput(fixture('risky-monolithic-workflow.json'), 'monolithic')
+    const large = scanWorkflowInput(fixture('clean-monolithic-workflow.json'), 'monolithic')
     const small = scanWorkflowInput(fixture('risky-invalid-cron.json'), 'small')
 
     expect(findingsFor(large, 'monolithic-workflow')).toHaveLength(1)

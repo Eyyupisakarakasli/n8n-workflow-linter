@@ -6,16 +6,25 @@
       "name": "Daily report",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
-          "interval": [{"field": "cronExpression", "expression": "0 9 * * *"}]
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
         }
       }
     }
   ],
   "connections": {},
   "settings": {
+    "executionOrder": "v1",
     "timezone": "Europe/Istanbul"
   }
 }
