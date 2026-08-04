@@ -956,6 +956,86 @@ describe('scanWorkflowInput', () => {
     expect(highOrCriticalCount(result)).toBe(0)
   })
 
+  it('reads the email guard from the filter structure when no wording can be matched', () => {
+    // nodeSearchText serialises node parameters, so an operator named notEmpty/exists also
+    // satisfies the text fallback in hasRequiredFieldValidationUpstream. Every other email
+    // guard test therefore passes through both paths at once and would stay green if the
+    // structured reader broke. `empty` is the one real filter operator whose serialised text
+    // matches none of the fallback phrases, so this workflow can only clear via the
+    // structured reader. Shape copied from a real n8n export (If typeVersion 2.2).
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Structured email guard only',
+        nodes: [
+          {
+            id: 'wh',
+            name: 'Receive Lead Webhook',
+            type: 'n8n-nodes-base.webhook',
+            typeVersion: 2,
+            position: [0, 0],
+            parameters: { path: 'lead-intake', httpMethod: 'POST', authentication: 'headerAuth' },
+          },
+          {
+            id: 'gate',
+            name: 'Email presence gate',
+            type: 'n8n-nodes-base.if',
+            typeVersion: 2.2,
+            position: [240, 0],
+            parameters: {
+              options: {},
+              conditions: {
+                options: { version: 2, leftValue: '', caseSensitive: true, typeValidation: 'strict' },
+                combinator: 'and',
+                conditions: [
+                  {
+                    id: 'a1f0c9d2-77b4-4e51-9c3a-6b2d8e0f4a15',
+                    operator: { type: 'string', operation: 'empty', singleValue: true },
+                    leftValue: '={{ $json.email }}',
+                    rightValue: '',
+                  },
+                ],
+              },
+            },
+          },
+          {
+            id: 'stop',
+            name: 'Drop incomplete lead',
+            type: 'n8n-nodes-base.noOp',
+            typeVersion: 1,
+            position: [480, -80],
+            parameters: {},
+          },
+          {
+            id: 'hs',
+            name: 'Upsert HubSpot Contact By Email',
+            type: 'n8n-nodes-base.hubspot',
+            typeVersion: 2,
+            position: [480, 80],
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            credentials: { hubspotApi: { id: 'REPLACE_WITH_CREDENTIAL_ID', name: 'HubSpot account' } },
+            retryOnFail: true,
+            maxTries: 3,
+            onError: 'continueErrorOutput',
+          },
+        ],
+        connections: {
+          'Receive Lead Webhook': { main: [[{ node: 'Email presence gate', type: 'main', index: 0 }]] },
+          'Email presence gate': {
+            main: [
+              [{ node: 'Drop incomplete lead', type: 'main', index: 0 }],
+              [{ node: 'Upsert HubSpot Contact By Email', type: 'main', index: 0 }],
+            ],
+          },
+        },
+        settings: { executionOrder: 'v1', errorWorkflow: 'REPLACE_WITH_ERROR_WORKFLOW_ID' },
+      }),
+      'structured-guard-only',
+    )
+
+    expect(findingsFor(result, 'hubspot-contact-email-not-required')).toHaveLength(0)
+    expect(highOrCriticalCount(result)).toBe(0)
+  })
+
   it('flags duplicate writes that can run in the same branch', () => {
     const result = scanWorkflowInput(fixture('risky-same-branch-duplicate-write.json'), 'same branch duplicate')
 

@@ -17,14 +17,28 @@
       "id": "validate-order",
       "name": "Validate Order Payload",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "typeVersion": 2.2,
       "position": [240, 0],
       "parameters": {
+        "options": {},
         "conditions": {
-          "string": [
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
             {
-              "value1": "={{ $json.orderId }}",
-              "operation": "isNotEmpty"
+              "id": "8f1c2d43-6a90-4f2e-b7c1-2d54e9a8b310",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.orderId }}",
+              "rightValue": ""
             }
           ]
         }
