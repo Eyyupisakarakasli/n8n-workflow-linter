@@ -150,7 +150,7 @@
       "name": "Create or Update HubSpot Contact When Missing",
       "type": "n8n-nodes-base.hubspot",
       "typeVersion": 2,
-      "position": [1200, 120],
+      "position": [1560, 120],
       "parameters": {
         "resource": "contact",
         "operation": "upsert",
@@ -169,6 +169,48 @@
       "maxTries": 3,
       "waitBetweenTries": 1000,
       "onError": "continueErrorOutput"
+    },
+    {
+      "id": "restore-missing-contact-email",
+      "name": "Restore Missing Contact Email",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1080, 120],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "email",
+              "value": "={{ $('Normalize Lead Email And Phone').item.json.email }}"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      }
+    },
+    {
+      "id": "validate-missing-contact-email",
+      "name": "Validate Missing Contact Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 120],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "missing-contact-email-not-empty",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
     }
   ],
   "connections": {
@@ -225,6 +267,28 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Restore Missing Contact Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Missing Contact Email": {
+      "main": [
+        [
+          {
+            "node": "Validate Missing Contact Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Missing Contact Email": {
+      "main": [
         [
           {
             "node": "Create or Update HubSpot Contact When Missing",

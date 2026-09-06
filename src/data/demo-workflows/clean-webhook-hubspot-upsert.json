@@ -19,7 +19,7 @@
       "name": "Validate Required Lead Fields",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [260, 0],
+      "position": [520, 0],
       "parameters": {
         "conditions": {
           "options": {
@@ -49,7 +49,7 @@
       "name": "Normalize Lead Email And Phone",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
-      "position": [520, 0],
+      "position": [260, 0],
       "parameters": {
         "assignments": {
           "assignments": [
@@ -119,17 +119,6 @@
       "main": [
         [
           {
-            "node": "Validate Required Lead Fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate Required Lead Fields": {
-      "main": [
-        [
-          {
             "node": "Normalize Lead Email And Phone",
             "type": "main",
             "index": 0
@@ -138,6 +127,17 @@
       ]
     },
     "Normalize Lead Email And Phone": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Lead Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Lead Fields": {
       "main": [
         [
           {

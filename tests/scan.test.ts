@@ -45,6 +45,19 @@ function emailGuardConditions(operation = 'notEmpty') {
   }
 }
 
+function fieldGuardCondition(field: string, operation: string) {
+  return {
+    id: `${field}-${operation}`,
+    leftValue: `={{ $json.${field} }}`,
+    rightValue: '',
+    operator: {
+      type: 'string',
+      operation,
+      singleValue: true,
+    },
+  }
+}
+
 function ids(result: ScanResult): Set<string> {
   return new Set(result.findings.map((finding) => finding.ruleId))
 }
@@ -642,8 +655,8 @@ describe('scanWorkflowInput', () => {
     )
   })
 
-  it('accepts current IF filter operators as upstream HubSpot email guards', () => {
-    for (const operation of ['notEmpty', 'exists']) {
+  it('accepts notEmpty as an upstream HubSpot email guard', () => {
+    for (const operation of ['notEmpty', 'isNotEmpty']) {
       const result = scanWorkflowInput(
         JSON.stringify({
           name: `HubSpot upsert guarded by ${operation}`,
@@ -704,6 +717,785 @@ describe('scanWorkflowInput', () => {
       expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
       expect(highOrCriticalCount(result)).toBe(0)
     }
+  })
+
+  it('requires HubSpot writes to use the safe IF branch for email guards', () => {
+    for (const [operation, writeOutputIndex] of [
+      ['notEmpty', 1],
+      ['exists', 1],
+      ['empty', 0],
+      ['notExists', 0],
+    ] as const) {
+      const outputs: Array<Array<{ node: string; type: string; index: number }>> = [[], []]
+      outputs[writeOutputIndex] = [{ node: 'HubSpot Write', type: 'main', index: 0 }]
+
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `Inverted ${operation} email guard`,
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions: emailGuardConditions(operation) },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Validate Lead Email': { main: outputs },
+          },
+        }),
+        `inverted ${operation} branch`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+  })
+
+  it('accepts empty email guards only on their false branch', () => {
+    for (const operation of ['empty']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `${operation} email guard on safe branch`,
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions: emailGuardConditions(operation) },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Validate Lead Email': { main: [[], [{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+          },
+        }),
+        `${operation} safe branch`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+    }
+  })
+
+  it('does not treat exists or notExists as proof of a nonblank email', () => {
+    for (const operation of ['exists', 'notExists']) {
+      for (const outputIndex of [0, 1]) {
+        const outputs: Array<Array<{ node: string; type: string; index: number }>> = [[], []]
+        outputs[outputIndex] = [{ node: 'HubSpot Write', type: 'main', index: 0 }]
+        const result = scanWorkflowInput(
+          JSON.stringify({
+            name: `${operation} is not nonblank proof`,
+            nodes: [
+              {
+                id: 'validate',
+                name: 'Check Lead Email',
+                type: 'n8n-nodes-base.if',
+                parameters: { conditions: emailGuardConditions(operation) },
+              },
+              {
+                id: 'hubspot',
+                name: 'HubSpot Write',
+                type: 'n8n-nodes-base.hubspot',
+                parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+              },
+            ],
+            connections: { 'Check Lead Email': { main: outputs } },
+          }),
+          `${operation} output ${outputIndex}`,
+        )
+
+        expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+      }
+    }
+  })
+
+  it('requires an exact current-item email operand on the unary guard', () => {
+    for (const [leftValue, rightValue, expectedFinding] of [
+      ['={{ $json.email }}', '', false],
+      ['{{ $json.email }}', '', false],
+      ['$json.email', '', true],
+      ["={{ $json['email'] }}", '', false],
+      ['={{ $json["email"] }}', '', false],
+      ['={{ $json.customerEmail }}', '={{ $json.email }}', true],
+      ['={{ $json.emailVerified }}', '', true],
+      ['={{ $json.email', '', true],
+      ['$json.email }}', '', true],
+      ['{{ $json.email', '', true],
+      ['={{ $json.email }', '', true],
+    ] as const) {
+      const conditions = emailGuardConditions('notEmpty')
+      conditions.conditions[0].leftValue = leftValue
+      conditions.conditions[0].rightValue = rightValue
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Exact email operand',
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Check Lead Field',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: { 'Check Lead Field': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] } },
+        }),
+        'exact email operand',
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(expectedFinding)
+    }
+  })
+
+  it('does not apply a current-item email guard to a different HubSpot email mapping', () => {
+    for (const email of ['={{ $json.customerEmail }}', '={{ $json.email', '$json.email }}']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Mismatched HubSpot email mapping',
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Check Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions: emailGuardConditions('notEmpty') },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email },
+            },
+          ],
+          connections: { 'Check Lead Email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] } },
+        }),
+        'mismatched HubSpot email mapping',
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+  })
+
+  it('accepts a clearly non-empty literal HubSpot email without an upstream guard', () => {
+    for (const [email, expectedFinding] of [
+      ['fixed@example.com', false],
+      ['   ', true],
+      ['={{ $json.customerEmail }}', true],
+      ["={{ 'fixed@example.com' }}", true],
+      ['={{ $json.email', true],
+      ['$json.email }}', true],
+    ] as const) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Literal HubSpot email mapping',
+          nodes: [
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email },
+            },
+          ],
+          connections: {},
+        }),
+        'literal HubSpot email mapping',
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(expectedFinding)
+    }
+  })
+
+  it('does not treat non-main IF outputs as safe guard branches', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'IF error output is not validation',
+        nodes: [
+          {
+            id: 'validate',
+            name: 'Check Lead Email',
+            type: 'n8n-nodes-base.if',
+            parameters: { conditions: emailGuardConditions('notEmpty') },
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: { 'Check Lead Email': { error: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] } },
+      }),
+      'IF error output',
+    )
+
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+  })
+
+  it('only accepts Filter output when its email condition keeps non-empty items', () => {
+    for (const [operation, expectedFinding] of [
+      ['notEmpty', false],
+      ['empty', true],
+    ] as const) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `Filter with ${operation} email condition`,
+          nodes: [
+            {
+              id: 'filter',
+              name: 'Filter Lead Email',
+              type: 'n8n-nodes-base.filter',
+              parameters: { conditions: emailGuardConditions(operation) },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Filter Lead Email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+          },
+        }),
+        `filter ${operation}`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(expectedFinding)
+    }
+  })
+
+  it('requires every incoming path to a HubSpot write to have an email guard', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Merge bypasses email guard',
+        nodes: [
+          {
+            id: 'guarded-source',
+            name: 'Guarded Source',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {},
+          },
+          {
+            id: 'unguarded-source',
+            name: 'Unguarded Source',
+            type: 'n8n-nodes-base.webhook',
+            parameters: {},
+          },
+          {
+            id: 'validate',
+            name: 'Validate Lead Email',
+            type: 'n8n-nodes-base.if',
+            parameters: { conditions: emailGuardConditions('notEmpty') },
+          },
+          {
+            id: 'merge',
+            name: 'Merge Leads',
+            type: 'n8n-nodes-base.merge',
+            parameters: {},
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: {
+          'Guarded Source': { main: [[{ node: 'Validate Lead Email', type: 'main', index: 0 }]] },
+          'Validate Lead Email': { main: [[{ node: 'Merge Leads', type: 'main', index: 0 }]] },
+          'Unguarded Source': { main: [[{ node: 'Merge Leads', type: 'main', index: 1 }]] },
+          'Merge Leads': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+        },
+      }),
+      'merge bypass',
+    )
+
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+  })
+
+  it('preserves email proof through Merge append when every incoming path is guarded', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'All Merge append inputs guarded',
+        nodes: [
+          { id: 'source-a', name: 'Source A', type: 'n8n-nodes-base.webhook', parameters: {} },
+          { id: 'source-b', name: 'Source B', type: 'n8n-nodes-base.webhook', parameters: {} },
+          { id: 'guard-a', name: 'Guard A Email', type: 'n8n-nodes-base.if', parameters: { conditions: emailGuardConditions() } },
+          { id: 'guard-b', name: 'Guard B Email', type: 'n8n-nodes-base.if', parameters: { conditions: emailGuardConditions() } },
+          { id: 'merge', name: 'Append Leads', type: 'n8n-nodes-base.merge', parameters: { mode: 'append' } },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: {
+          'Source A': { main: [[{ node: 'Guard A Email', type: 'main', index: 0 }]] },
+          'Source B': { main: [[{ node: 'Guard B Email', type: 'main', index: 0 }]] },
+          'Guard A Email': { main: [[{ node: 'Append Leads', type: 'main', index: 0 }]] },
+          'Guard B Email': { main: [[{ node: 'Append Leads', type: 'main', index: 1 }]] },
+          'Append Leads': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+        },
+      }),
+      'guarded Merge append',
+    )
+
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+  })
+
+  it('invalidates a guard when Set assigns email before the HubSpot write', () => {
+    for (const value of ['', '={{ $json.email.trim().toLowerCase() }}']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Email changes after validation',
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Check Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions: emailGuardConditions('notEmpty') },
+            },
+            {
+              id: 'set',
+              name: 'Change Lead Email',
+              type: 'n8n-nodes-base.set',
+              parameters: { assignments: { assignments: [{ name: 'email', value }] } },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Check Lead Email': { main: [[{ node: 'Change Lead Email', type: 'main', index: 0 }]] },
+            'Change Lead Email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+          },
+        }),
+        'email changes after validation',
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+  })
+
+  it('accepts normalization followed by a fresh nonblank email guard', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Normalize then validate email',
+        nodes: [
+          {
+            id: 'set',
+            name: 'Normalize Lead Email',
+            type: 'n8n-nodes-base.set',
+            parameters: {
+              assignments: {
+                assignments: [{ name: 'email', value: '={{ $json.email.trim().toLowerCase() }}' }],
+              },
+            },
+          },
+          {
+            id: 'validate',
+            name: 'Check Normalized Email',
+            type: 'n8n-nodes-base.if',
+            parameters: { conditions: emailGuardConditions('notEmpty') },
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: {
+          'Normalize Lead Email': { main: [[{ node: 'Check Normalized Email', type: 'main', index: 0 }]] },
+          'Check Normalized Email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+        },
+      }),
+      'normalize then validate email',
+    )
+
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+  })
+
+  it('handles current and legacy Set email mutation and field-retention shapes conservatively', () => {
+    const cases: Array<[string, Record<string, unknown>, boolean]> = [
+      [
+        'current email assignment',
+        { assignments: { assignments: [{ name: 'email', value: 'changed@example.com' }] }, includeOtherFields: true },
+        true,
+      ],
+      [
+        'legacy email assignment',
+        { values: { string: [{ name: 'email', value: 'changed@example.com' }] }, keepOnlySet: false },
+        true,
+      ],
+      [
+        'raw JSON output can blank email',
+        { mode: 'raw', jsonOutput: '{"email":""}', includeOtherFields: true },
+        true,
+      ],
+      [
+        'current drops unassigned email',
+        { assignments: { assignments: [{ name: 'status', value: 'ready' }] }, includeOtherFields: false },
+        true,
+      ],
+      [
+        'legacy drops unassigned email',
+        { values: { string: [{ name: 'status', value: 'ready' }] }, keepOnlySet: true },
+        true,
+      ],
+      [
+        'current preserves unassigned email',
+        { assignments: { assignments: [{ name: 'status', value: 'ready' }] }, includeOtherFields: true },
+        false,
+      ],
+      [
+        'legacy preserves unassigned email',
+        { values: { string: [{ name: 'status', value: 'ready' }] }, keepOnlySet: false },
+        false,
+      ],
+    ]
+
+    for (const [name, parameters, expectedFinding] of cases) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name,
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: { conditions: emailGuardConditions('notEmpty') },
+            },
+            {
+              id: 'set',
+              name: 'Edit Lead Fields',
+              type: 'n8n-nodes-base.set',
+              parameters,
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Validate Lead Email': { main: [[{ node: 'Edit Lead Fields', type: 'main', index: 0 }]] },
+            'Edit Lead Fields': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+          },
+        }),
+        name,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(expectedFinding)
+    }
+  })
+
+  it('handles guarded and unguarded cycles without recursive traversal', () => {
+    const build = (guarded: boolean) => {
+      const nodes = [
+        { id: 'source', name: 'Source', type: 'n8n-nodes-base.webhook', parameters: {} },
+        { id: 'a', name: 'Loop A', type: 'n8n-nodes-base.noOp', parameters: {} },
+        { id: 'b', name: 'Loop B', type: 'n8n-nodes-base.noOp', parameters: {} },
+        {
+          id: 'hubspot',
+          name: 'HubSpot Write',
+          type: 'n8n-nodes-base.hubspot',
+          parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+        },
+      ]
+      const connections: Record<string, { main: Array<Array<{ node: string; type: string; index: number }>> }> = {
+        'Loop A': { main: [[{ node: 'Loop B', type: 'main', index: 0 }]] },
+        'Loop B': {
+          main: [[
+            { node: 'Loop A', type: 'main', index: 0 },
+            { node: 'HubSpot Write', type: 'main', index: 0 },
+          ]],
+        },
+      }
+
+      if (guarded) {
+        nodes.push({
+          id: 'validate',
+          name: 'Check Lead Email',
+          type: 'n8n-nodes-base.if',
+          parameters: { conditions: emailGuardConditions('notEmpty') },
+        } as never)
+        connections.Source = { main: [[{ node: 'Check Lead Email', type: 'main', index: 0 }]] }
+        connections['Check Lead Email'] = { main: [[{ node: 'Loop A', type: 'main', index: 0 }]] }
+      } else {
+        connections.Source = { main: [[{ node: 'Loop A', type: 'main', index: 0 }]] }
+      }
+
+      return JSON.stringify({ name: guarded ? 'Guarded cycle' : 'Unguarded cycle', nodes, connections })
+    }
+
+    expect(ids(scanWorkflowInput(build(true), 'guarded cycle')).has('hubspot-contact-email-not-required')).toBe(false)
+    expect(ids(scanWorkflowInput(build(false), 'unguarded cycle')).has('hubspot-contact-email-not-required')).toBe(true)
+  })
+
+  it('handles a deep guarded path iteratively', () => {
+    const nodes: Array<Record<string, unknown>> = [
+      {
+        id: 'validate',
+        name: 'Check Lead Email',
+        type: 'n8n-nodes-base.if',
+        parameters: { conditions: emailGuardConditions('notEmpty') },
+      },
+    ]
+    const connections: Record<string, { main: Array<Array<{ node: string; type: string; index: number }>> }> = {}
+    let previous = 'Check Lead Email'
+
+    for (let index = 0; index < 1500; index += 1) {
+      const name = `Pass Through ${index}`
+      nodes.push({ id: `noop-${index}`, name, type: 'n8n-nodes-base.noOp', parameters: {} })
+      connections[previous] = { main: [[{ node: name, type: 'main', index: 0 }]] }
+      previous = name
+    }
+
+    nodes.push({
+      id: 'hubspot',
+      name: 'HubSpot Write',
+      type: 'n8n-nodes-base.hubspot',
+      parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+    })
+    connections[previous] = { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] }
+
+    const result = scanWorkflowInput(JSON.stringify({ name: 'Deep guarded path', nodes, connections }), 'deep guard')
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+  })
+
+  it('does not overclaim email guarantees from multi-condition branches', () => {
+    for (const [combinator, emailOperation, outputIndex] of [
+      ['or', 'notEmpty', 0],
+      ['and', 'empty', 1],
+    ] as const) {
+      const outputs: Array<Array<{ node: string; type: string; index: number }>> = [[], []]
+      outputs[outputIndex] = [{ node: 'HubSpot Write', type: 'main', index: 0 }]
+
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `${combinator} condition counterexample`,
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: {
+                conditions: {
+                  conditions: [
+                    fieldGuardCondition('email', emailOperation),
+                    fieldGuardCondition('status', 'exists'),
+                  ],
+                  combinator,
+                },
+              },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: { 'Validate Lead Email': { main: outputs } },
+        }),
+        `${combinator} email condition counterexample`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+  })
+
+  it('accepts multi-condition branches only when their formula guarantees email', () => {
+    for (const [combinator, emailOperation, outputIndex] of [
+      ['and', 'notEmpty', 0],
+      ['or', 'empty', 1],
+    ] as const) {
+      const outputs: Array<Array<{ node: string; type: string; index: number }>> = [[], []]
+      outputs[outputIndex] = [{ node: 'HubSpot Write', type: 'main', index: 0 }]
+
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `${combinator} condition guarantee`,
+          nodes: [
+            {
+              id: 'validate',
+              name: 'Validate Lead Email',
+              type: 'n8n-nodes-base.if',
+              parameters: {
+                conditions: {
+                  conditions: [
+                    fieldGuardCondition('email', emailOperation),
+                    fieldGuardCondition('status', 'exists'),
+                  ],
+                  combinator,
+                },
+              },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: { 'Validate Lead Email': { main: outputs } },
+        }),
+        `${combinator} email condition guarantee`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(false)
+    }
+  })
+
+  it('does not use Switch or branch-node wording as proof of email validation', () => {
+    for (const type of ['if', 'filter', 'switch']) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `${type} wording is not proof`,
+          nodes: [
+            {
+              id: 'branch',
+              name: 'Validate required email',
+              type: `n8n-nodes-base.${type}`,
+              parameters: {
+                conditions: {
+                  conditions: [
+                    {
+                      ...fieldGuardCondition('email', 'equals'),
+                      rightValue: 'valid',
+                    },
+                  ],
+                  combinator: 'and',
+                },
+              },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: {
+            'Validate required email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+          },
+        }),
+        `${type} wording`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+
+    const switchResult = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Structured Switch email condition',
+        nodes: [
+          {
+            id: 'switch',
+            name: 'Route By Email',
+            type: 'n8n-nodes-base.switch',
+            parameters: { conditions: emailGuardConditions('notEmpty') },
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: { 'Route By Email': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] } },
+      }),
+      'structured Switch condition',
+    )
+
+    expect(ids(switchResult).has('hubspot-contact-email-not-required')).toBe(true)
+  })
+
+  it('does not use Code or Function nodes as email-validation proof', () => {
+    for (const [name, jsCode] of [
+      ['Validate required email', 'return items;'],
+      ['Process lead', "if (!$json.email) throw new Error('email is required'); return items;"],
+      ['Commented check', "// if (!$json.email) throw new Error('email is required');\nreturn items;"],
+    ] as const) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: `${name} code guard`,
+          nodes: [
+            {
+              id: 'code',
+              name,
+              type: 'n8n-nodes-base.code',
+              parameters: { jsCode },
+            },
+            {
+              id: 'hubspot',
+              name: 'HubSpot Write',
+              type: 'n8n-nodes-base.hubspot',
+              parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+            },
+          ],
+          connections: { [name]: { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] } },
+        }),
+        `${name} code guard`,
+      )
+
+      expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
+    }
+  })
+
+  it('invalidates an earlier email guard across an unknown data-changing node', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Unknown transform after email guard',
+        nodes: [
+          {
+            id: 'validate',
+            name: 'Validate Lead Email',
+            type: 'n8n-nodes-base.if',
+            parameters: { conditions: emailGuardConditions('notEmpty') },
+          },
+          {
+            id: 'code',
+            name: 'Transform Lead',
+            type: 'n8n-nodes-base.code',
+            parameters: { jsCode: 'return items;' },
+          },
+          {
+            id: 'hubspot',
+            name: 'HubSpot Write',
+            type: 'n8n-nodes-base.hubspot',
+            parameters: { resource: 'contact', operation: 'upsert', email: '={{ $json.email }}' },
+          },
+        ],
+        connections: {
+          'Validate Lead Email': { main: [[{ node: 'Transform Lead', type: 'main', index: 0 }]] },
+          'Transform Lead': { main: [[{ node: 'HubSpot Write', type: 'main', index: 0 }]] },
+        },
+      }),
+      'unknown transform after guard',
+    )
+
+    expect(ids(result).has('hubspot-contact-email-not-required')).toBe(true)
   })
 
   it('reports missing HubSpot email input distinctly from missing validation', () => {
@@ -892,6 +1684,13 @@ describe('scanWorkflowInput', () => {
             typeVersion: 1,
           },
           {
+            name: 'Validate Returned Email',
+            type: 'n8n-nodes-base.if',
+            parameters: {
+              conditions: emailGuardConditions('isNotEmpty'),
+            },
+          },
+          {
             name: 'create new contact',
             type: 'n8n-nodes-base.hubspot',
             parameters: {
@@ -909,6 +1708,9 @@ describe('scanWorkflowInput', () => {
             main: [[{ node: 'Find HubSpot Contact', type: 'main', index: 0 }]],
           },
           'Find HubSpot Contact': {
+            main: [[{ node: 'Validate Returned Email', type: 'main', index: 0 }]],
+          },
+          'Validate Returned Email': {
             main: [[{ node: 'create new contact', type: 'main', index: 0 }]],
           },
         },
@@ -958,12 +1760,8 @@ describe('scanWorkflowInput', () => {
   })
 
   it('reads the email guard from the filter structure when no wording can be matched', () => {
-    // nodeSearchText serialises node parameters, so an operator named notEmpty/exists also
-    // satisfies the text fallback in hasRequiredFieldValidationUpstream. Every other email
-    // guard test therefore passes through both paths at once and would stay green if the
-    // structured reader broke. `empty` is the one real filter operator whose serialised text
-    // matches none of the fallback phrases, so this workflow can only clear via the
-    // structured reader. Shape copied from a real n8n export (If typeVersion 2.2).
+    // `empty` on the false output can only clear through the structured, branch-aware
+    // reader. Shape copied from a real n8n export (If typeVersion 2.2).
     const result = scanWorkflowInput(
       JSON.stringify({
         name: 'Structured email guard only',

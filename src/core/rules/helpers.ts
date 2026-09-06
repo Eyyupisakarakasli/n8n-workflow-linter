@@ -540,73 +540,197 @@ export function hasRequiredFieldValidationUpstream(
   node: N8nNode,
   field: 'email',
 ): boolean {
-  return hasUpstreamNode(
-    context.workflow,
-    context.graph,
-    node.id,
-    (candidate) => {
-      const categories = context.categoriesByNodeId[candidate.id] ?? []
-      const candidateLooksLikeValidation =
-        categories.includes('validation') || nodeTypeIs(candidate, 'if', 'switch', 'filter', 'code', 'function')
-      if (!candidateLooksLikeValidation) return false
+  const targetValue = getParameterString(node, field)
+  if (targetValue.trim() && !isExpression(targetValue)) return true
+  if (!isExactJsonFieldOperand(targetValue, field)) return false
 
-      if (hasStructuredRequiredFieldGuard(candidate, field)) return true
+  // Non-operational pass-through nodes are intentionally absent from the main
+  // scanning graph. Validation is a path property, though, so prove it over the
+  // executable original topology (while still excluding disabled nodes).
+  const disabledIds = new Set(context.disabledNodes.map((candidate) => candidate.id))
+  const proofNodes = context.originalWorkflow.nodes.filter((candidate) => !disabledIds.has(candidate.id))
+  const proofNodeById = Object.fromEntries(proofNodes.map((candidate) => [candidate.id, candidate]))
+  const proofIds = new Set(proofNodes.map((candidate) => candidate.id))
+  const incomingById: Record<string, ConnectionEdge[]> = Object.fromEntries(proofNodes.map((candidate) => [candidate.id, []]))
+  const outgoingById: Record<string, ConnectionEdge[]> = Object.fromEntries(proofNodes.map((candidate) => [candidate.id, []]))
+  for (const edge of context.originalWorkflow.edges) {
+    if (!proofIds.has(edge.sourceId) || !proofIds.has(edge.targetId)) continue
+    outgoingById[edge.sourceId].push(edge)
+    incomingById[edge.targetId].push(edge)
+  }
 
-      const text = nodeSearchText(candidate)
-      return (
-        text.includes(field) &&
-        textIncludesAny(text, [
-          'isnotempty',
-          'notempty',
-          'is not empty',
-          'not empty',
-          'exists',
-          'required',
-          'missing email',
-          'no email',
-          'valid email',
-          'validate email',
-          'throw new error',
-        ])
-      )
-    },
-    context.maxGraphDepth,
+  const ancestors = new Set<string>([node.id])
+  const reverseQueue = [node.id]
+
+  for (let index = 0; index < reverseQueue.length; index += 1) {
+    const nodeId = reverseQueue[index]
+    for (const edge of incomingById[nodeId] ?? []) {
+      if (ancestors.has(edge.sourceId)) continue
+      ancestors.add(edge.sourceId)
+      reverseQueue.push(edge.sourceId)
+    }
+  }
+
+  const roots = [...ancestors].filter(
+    (nodeId) => !(incomingById[nodeId] ?? []).some((edge) => ancestors.has(edge.sourceId)),
   )
+  const structurallyReachable = new Set(roots)
+  const structuralQueue = [...roots]
+
+  for (let index = 0; index < structuralQueue.length; index += 1) {
+    for (const edge of outgoingById[structuralQueue[index]] ?? []) {
+      if (!ancestors.has(edge.targetId) || structurallyReachable.has(edge.targetId)) continue
+      structurallyReachable.add(edge.targetId)
+      structuralQueue.push(edge.targetId)
+    }
+  }
+
+  // Compute the monotone least fixed point of nodes reachable by an unprotected
+  // path. Nodes in source cycles have no ordinary root, so seed structurally
+  // unreachable ancestors as fail-closed inputs.
+  const unprotected = new Set<string>([
+    ...roots,
+    ...[...ancestors].filter((nodeId) => !structurallyReachable.has(nodeId)),
+    ...[...ancestors].filter((nodeId) => {
+      if (nodeId === node.id) return false
+      const candidate = proofNodeById[nodeId]
+      return candidate ? !knownToPreserveRequiredField(candidate, field) : true
+    }),
+  ])
+  const forwardQueue = [...unprotected]
+
+  for (let index = 0; index < forwardQueue.length; index += 1) {
+    const sourceId = forwardQueue[index]
+    if (sourceId === node.id) return false
+
+    const source = proofNodeById[sourceId]
+    if (!source) return false
+
+    for (const edge of outgoingById[sourceId] ?? []) {
+      if (!ancestors.has(edge.targetId) || edgeGuaranteesRequiredField(source, edge, field)) continue
+      if (unprotected.has(edge.targetId)) continue
+      unprotected.add(edge.targetId)
+      forwardQueue.push(edge.targetId)
+    }
+  }
+
+  return true
 }
 
-function hasStructuredRequiredFieldGuard(node: N8nNode, field: 'email'): boolean {
-  return collectFilterConditions(node.parameters).some((condition) => {
-    const leftValue = stringField(condition, 'leftValue').toLowerCase()
-    const rightValue = stringField(condition, 'rightValue').toLowerCase()
-    const operator = condition.operator
-    const operation = isRecord(operator) ? stringField(operator, 'operation').toLowerCase() : stringField(condition, 'operation').toLowerCase()
-    const operatorType = isRecord(operator) ? stringField(operator, 'type').toLowerCase() : ''
+function edgeGuaranteesRequiredField(node: N8nNode, edge: ConnectionEdge, field: 'email'): boolean {
+  if (edge.outputType.toLowerCase() !== 'main') return false
 
-    if (operatorType && operatorType !== 'string') return false
-    if (!['exists', 'notexists', 'empty', 'notempty', 'isnotempty'].includes(operation)) return false
+  if (nodeTypeIs(node, 'if', 'filter')) {
+    return structuredRequiredFieldSafeOutputs(node, field)?.has(edge.outputIndex) ?? false
+  }
 
-    return leftValue.includes(field) || rightValue.includes(field)
+  return false
+}
+
+function structuredRequiredFieldSafeOutputs(node: N8nNode, field: 'email'): Set<number> | undefined {
+  const evaluation = evaluateConditionFormula(node.parameters.conditions, field)
+  if (!evaluation.referencesField) return undefined
+
+  const safeOutputs = new Set<number>()
+  if (!evaluation.possibleWhenMissing.has(true)) safeOutputs.add(0)
+  if (nodeTypeIs(node, 'if') && !evaluation.possibleWhenMissing.has(false)) safeOutputs.add(1)
+  return safeOutputs
+}
+
+function knownToPreserveRequiredField(node: N8nNode, field: 'email'): boolean {
+  if (nodeTypeIs(node, 'if', 'filter', 'noOp', 'wait')) return true
+  if (nodeTypeIs(node, 'merge')) {
+    return getParameterString(node, 'mode').trim().toLowerCase() === 'append'
+  }
+  if (!nodeTypeIs(node, 'set', 'editFields')) return false
+
+  const setMode = getParameterString(node, 'mode').trim().toLowerCase()
+  let hasJsonOutput = false
+  walkJson(node.parameters, (value) => {
+    if (!isRecord(value)) return
+    if (Object.keys(value).some((key) => key.toLowerCase().replace(/[^a-z]/g, '') === 'jsonoutput')) {
+      hasJsonOutput = true
+    }
   })
+  if (setMode === 'raw' || setMode === 'jsonoutput' || hasJsonOutput) return false
+
+  const assignments: JsonObject[] = []
+  walkJson(node.parameters, (value) => {
+    if (!isRecord(value) || stringField(value, 'name').trim().toLowerCase() !== field) return
+    assignments.push(value)
+  })
+
+  if (assignments.length > 0) return false
+
+  return node.parameters.includeOtherFields === true || node.parameters.keepOnlySet === false
 }
 
-function collectFilterConditions(value: unknown): JsonObject[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => collectFilterConditions(item))
+interface ConditionFormulaEvaluation {
+  possibleWhenMissing: Set<boolean>
+  referencesField: boolean
+}
+
+function evaluateConditionFormula(value: unknown, field: 'email'): ConditionFormulaEvaluation {
+  if (!isRecord(value)) {
+    return { possibleWhenMissing: new Set([true, false]), referencesField: false }
   }
 
-  if (!isRecord(value)) return []
+  const children = Array.isArray(value.conditions) ? value.conditions : undefined
+  if (children) {
+    const evaluations = children.map((child) => evaluateConditionFormula(child, field))
+    const combinator = stringField(value, 'combinator').toLowerCase()
+    if (combinator !== 'and' && combinator !== 'or') {
+      return {
+        possibleWhenMissing: new Set([true, false]),
+        referencesField: evaluations.some((evaluation) => evaluation.referencesField),
+      }
+    }
+    const isOr = combinator === 'or'
+    const canBeTrue = isOr
+      ? evaluations.some((evaluation) => evaluation.possibleWhenMissing.has(true))
+      : evaluations.every((evaluation) => evaluation.possibleWhenMissing.has(true))
+    const canBeFalse = isOr
+      ? evaluations.every((evaluation) => evaluation.possibleWhenMissing.has(false))
+      : evaluations.some((evaluation) => evaluation.possibleWhenMissing.has(false))
 
-  const collected: JsonObject[] = []
-
-  if (isRecord(value.operator)) {
-    collected.push(value)
+    return {
+      possibleWhenMissing: new Set([
+        ...(canBeTrue ? [true] : []),
+        ...(canBeFalse ? [false] : []),
+      ]),
+      referencesField: evaluations.some((evaluation) => evaluation.referencesField),
+    }
   }
 
-  for (const child of Object.values(value)) {
-    collected.push(...collectFilterConditions(child))
+  const leftValue = stringField(value, 'leftValue')
+  const operator = value.operator
+  const operation = isRecord(operator)
+    ? stringField(operator, 'operation').toLowerCase()
+    : stringField(value, 'operation').toLowerCase()
+  const operatorType = isRecord(operator) ? stringField(operator, 'type').toLowerCase() : ''
+  const referencesField = isExactJsonFieldOperand(leftValue, field)
+
+  if (
+    !referencesField ||
+    (operatorType && operatorType !== 'string') ||
+    !['empty', 'notempty', 'isnotempty'].includes(operation)
+  ) {
+    return { possibleWhenMissing: new Set([true, false]), referencesField }
   }
 
-  return collected
+  return {
+    possibleWhenMissing: new Set(operation === 'empty' ? [true] : [false]),
+    referencesField: true,
+  }
+}
+
+function isExactJsonFieldOperand(value: string, field: 'email'): boolean {
+  const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const reference = String.raw`(?:\$json\.${escapedField}|\$json\[\s*(['"])${escapedField}\1\s*\])`
+  const normalized = value.trim().replace(/^=\s*/, '')
+  const exactReference = new RegExp(String.raw`^${reference}$`, 'i')
+  if (!normalized.startsWith('{{') || !normalized.endsWith('}}')) return false
+  return exactReference.test(normalized.slice(2, -2).trim())
 }
 
 export function canReturnZeroRows(node: N8nNode): boolean {
