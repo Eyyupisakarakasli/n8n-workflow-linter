@@ -832,17 +832,290 @@ export function urlSecretMatches(node: N8nNode): UrlSecretMatch[] {
   const urls = getStringParameters(node.parameters, ['url', 'endpoint'])
 
   for (const url of urls) {
-    if (!url.includes('?') || isExpression(url)) continue
+    if (!url.includes('?')) continue
 
     for (const [paramName, value] of queryPairs(url)) {
       const normalizedName = paramName.trim().toLowerCase()
       if (!credentialQueryParams.has(normalizedName)) continue
-      if (value.length < 8 || isPlaceholder(value) || isExpression(value)) continue
-      matches.push({ label: 'URL credential', paramName, value, redacted: redact(value) })
+      const literalValue = credentialLiteralCandidates(value).find(
+        (candidate) => candidate.length >= 8 && !isPlaceholder(candidate),
+      )
+      if (!literalValue) continue
+      matches.push({ label: 'URL credential', paramName, value: literalValue, redacted: redact(literalValue) })
     }
   }
 
   return matches
+}
+
+function credentialLiteralCandidates(value: string): string[] {
+  const candidates: string[] = []
+  const expressions = templateExpressionRanges(value)
+  let outsideExpressions = ''
+  let cursor = 0
+
+  for (const expression of expressions) {
+    outsideExpressions += value.slice(cursor, expression.start)
+    candidates.push(...expressionOutputLiterals(expression.source))
+    cursor = expression.end
+  }
+  outsideExpressions += value.slice(cursor)
+
+  const outside = outsideExpressions.trim()
+  if (outside && !outside.includes('{{')) candidates.push(outside)
+
+  return candidates
+}
+
+interface TemplateExpressionRange {
+  start: number
+  end: number
+  source: string
+}
+
+function templateExpressionRanges(value: string): TemplateExpressionRange[] {
+  const ranges: TemplateExpressionRange[] = []
+  for (let index = 0; index < value.length - 1; index += 1) {
+    if (!value.startsWith('{{', index)) continue
+    const end = findTemplateExpressionEnd(value, index + 2)
+    if (end < 0) continue
+    ranges.push({ start: index, end: end + 2, source: value.slice(index + 2, end) })
+    index = end + 1
+  }
+  return ranges
+}
+
+function findTemplateExpressionEnd(value: string, start: number): number {
+  let quote = ''
+  let escaped = false
+  for (let index = start; index < value.length - 1; index += 1) {
+    const character = value[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (value.startsWith('}}', index)) return index
+  }
+  return -1
+}
+
+function expressionOutputLiterals(expression: string): string[] {
+  const source = stripBalancedOuterParentheses(expression.trim())
+  const literal = exactOutputLiteral(source)
+  if (literal !== undefined) return [literal]
+
+  const templateOutputs = backtickOutputLiterals(source)
+  if (templateOutputs) return templateOutputs
+
+  const stringArgument = soleStringCallArgument(source)
+  if (stringArgument !== undefined) return expressionOutputLiterals(stringArgument)
+
+  const logical = findTopLevelLogicalOperator(source)
+  if (logical) {
+    return [
+      ...expressionOutputLiterals(source.slice(0, logical.index)),
+      ...expressionOutputLiterals(source.slice(logical.index + logical.token.length)),
+    ]
+  }
+
+  const ternary = findTopLevelTernary(source)
+  if (ternary) {
+    return [
+      ...expressionOutputLiterals(source.slice(ternary.question + 1, ternary.colon)),
+      ...expressionOutputLiterals(source.slice(ternary.colon + 1)),
+    ]
+  }
+
+  return []
+}
+
+function exactOutputLiteral(source: string): string | undefined {
+  if (source.length < 2) return undefined
+  const quote = source[0]
+  if ((quote !== "'" && quote !== '"' && quote !== '`') || source[source.length - 1] !== quote) return undefined
+
+  let escaped = false
+  for (let index = 1; index < source.length - 1; index += 1) {
+    const character = source[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      escaped = true
+      continue
+    }
+    if (character === quote) return undefined
+    if (quote === '`' && character === '$' && source[index + 1] === '{') return undefined
+  }
+  if (escaped) return undefined
+  return source.slice(1, -1).trim()
+}
+
+function backtickOutputLiterals(source: string): string[] | undefined {
+  if (source.length < 2 || source[0] !== '`' || source[source.length - 1] !== '`') return undefined
+
+  const literals: string[] = []
+  let staticStart = 1
+  let hasInterpolation = false
+  for (let index = 1; index < source.length - 1; index += 1) {
+    const character = source[index]
+    if (character === '\\') {
+      index += 1
+      continue
+    }
+    if (character === '`') return undefined
+    if (character !== '$' || source[index + 1] !== '{') continue
+
+    const end = findInterpolationEnd(source, index + 2)
+    if (end < 0 || end >= source.length - 1) return undefined
+    hasInterpolation = true
+    const staticSegment = source.slice(staticStart, index).trim()
+    if (staticSegment) literals.push(staticSegment)
+    literals.push(...expressionOutputLiterals(source.slice(index + 2, end)))
+    index = end
+    staticStart = end + 1
+  }
+  if (!hasInterpolation) return undefined
+  const trailingStatic = source.slice(staticStart, -1).trim()
+  if (trailingStatic) literals.push(trailingStatic)
+  return literals
+}
+
+function findInterpolationEnd(source: string, start: number): number {
+  let quote = ''
+  let escaped = false
+  let braceDepth = 1
+
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === '{') braceDepth += 1
+    else if (character === '}' && --braceDepth === 0) return index
+  }
+  return -1
+}
+
+function stripBalancedOuterParentheses(value: string): string {
+  let source = value
+  while (source.startsWith('(') && source.endsWith(')')) {
+    const closing = matchingClosingBracket(source, 0)
+    if (closing !== source.length - 1) break
+    source = source.slice(1, -1).trim()
+  }
+  return source
+}
+
+function matchingClosingBracket(value: string, openingIndex: number): number {
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  for (let index = openingIndex; index < value.length; index += 1) {
+    const character = value[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') quote = character
+    else if (character === '(') depth += 1
+    else if (character === ')' && --depth === 0) return index
+  }
+  return -1
+}
+
+function soleStringCallArgument(source: string): string | undefined {
+  const match = /^String\s*\(/.exec(source)
+  if (!match) return undefined
+  const openingIndex = source.indexOf('(', match.index)
+  if (matchingClosingBracket(source, openingIndex) !== source.length - 1) return undefined
+  const argument = source.slice(openingIndex + 1, -1)
+  return findTopLevelCharacter(argument, ',') < 0 ? argument : undefined
+}
+
+function findTopLevelLogicalOperator(source: string): { index: number; token: string } | undefined {
+  return topLevelTokens(source, ['||', '??', '&&'])[0]
+}
+
+function findTopLevelTernary(source: string): { question: number; colon: number } | undefined {
+  const question = findTopLevelQuestion(source)
+  if (question < 0) return undefined
+
+  let nestedTernaries = 0
+  for (const token of topLevelTokens(source.slice(question + 1), ['?', ':'])) {
+    if (token.token === '?') nestedTernaries += 1
+    else if (nestedTernaries > 0) nestedTernaries -= 1
+    else return { question, colon: question + 1 + token.index }
+  }
+  return undefined
+}
+
+function findTopLevelQuestion(source: string): number {
+  for (const token of topLevelTokens(source, ['?'])) {
+    const previous = source[token.index - 1]
+    const next = source[token.index + 1]
+    if (previous !== '?' && next !== '?' && next !== '.') return token.index
+  }
+  return -1
+}
+
+function findTopLevelCharacter(source: string, character: string): number {
+  return findTopLevelToken(source, [character])
+}
+
+function findTopLevelToken(source: string, tokens: string[]): number {
+  return topLevelTokens(source, tokens)[0]?.index ?? -1
+}
+
+function topLevelTokens(source: string, tokens: string[]): Array<{ index: number; token: string }> {
+  const found: Array<{ index: number; token: string }> = []
+  let quote = ''
+  let escaped = false
+  const depth = { round: 0, square: 0, curly: 0 }
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === '(') depth.round += 1
+    else if (character === ')') depth.round = Math.max(0, depth.round - 1)
+    else if (character === '[') depth.square += 1
+    else if (character === ']') depth.square = Math.max(0, depth.square - 1)
+    else if (character === '{') depth.curly += 1
+    else if (character === '}') depth.curly = Math.max(0, depth.curly - 1)
+    else if (depth.round === 0 && depth.square === 0 && depth.curly === 0) {
+      const token = tokens.find((candidate) => source.startsWith(candidate, index))
+      if (token) {
+        found.push({ index, token })
+        index += token.length - 1
+      }
+    }
+  }
+  return found
 }
 
 export function credentialIdLeaks(node: N8nNode): CredentialIdLeak[] {
@@ -1012,18 +1285,61 @@ function getFirstStringParameter(parameters: JsonObject, keyNames: string[]): st
 
 function queryPairs(url: string): Array<[string, string]> {
   try {
+    if (url.includes('{{')) throw new Error('Expression-aware parsing required')
     const parsed = new URL(url)
     return [...parsed.searchParams.entries()]
   } catch {
-    const query = url.split('?')[1]?.split('#')[0] ?? ''
-    return query
-      .split('&')
+    const queryStart = findCharacterOutsideExpressions(url, '?')
+    const queryWithFragment = queryStart >= 0 ? url.slice(queryStart + 1) : ''
+    const query = splitOutsideExpressions(queryWithFragment, '#')[0] ?? ''
+    return splitOutsideExpressions(query, '&')
       .filter(Boolean)
       .map((pair) => {
-        const [rawName, rawValue = ''] = pair.split('=')
+        const separatorIndex = pair.indexOf('=')
+        const rawName = separatorIndex >= 0 ? pair.slice(0, separatorIndex) : pair
+        const rawValue = separatorIndex >= 0 ? pair.slice(separatorIndex + 1) : ''
         return [decodeURIComponentSafe(rawName), decodeURIComponentSafe(rawValue)] as [string, string]
       })
   }
+}
+
+function findCharacterOutsideExpressions(value: string, character: string): number {
+  const expressions = templateExpressionRanges(value)
+  let expressionIndex = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    const expression = expressions[expressionIndex]
+    if (expression && index === expression.start) {
+      index = expression.end - 1
+      expressionIndex += 1
+      continue
+    }
+    if (value[index] === character) return index
+  }
+  return -1
+}
+
+function splitOutsideExpressions(value: string, separator: '&' | '#'): string[] {
+  const parts: string[] = []
+  let start = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.startsWith('{{', index)) {
+      const expressionEnd = findTemplateExpressionEnd(value, index + 2)
+      if (expressionEnd >= 0) {
+        index = expressionEnd + 1
+        continue
+      }
+    }
+    if (value[index] === separator) {
+      parts.push(value.slice(start, index))
+      start = index + 1
+      if (separator === '#') break
+    }
+  }
+
+  parts.push(value.slice(start))
+  return parts
 }
 
 function extractPathname(url: string): string {

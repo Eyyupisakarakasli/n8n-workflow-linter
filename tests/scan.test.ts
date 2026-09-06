@@ -359,6 +359,183 @@ describe('scanWorkflowInput', () => {
     expect(ids(result).has('credential-in-url')).toBe(false)
   })
 
+  it('flags a literal URL credential when another query parameter is an expression', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Mixed literal and expression query parameters',
+        nodes: [
+          {
+            id: 'http-mixed-url',
+            name: 'Fetch With Leaked URL Credential',
+            type: 'n8n-nodes-base.httpRequest',
+            parameters: {
+              method: 'GET',
+              url: 'https://api.example.com/items?api_key=literal-secret-123&token={{ $credentials.apiKey }}&user={{ $json.id }}',
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'mixed URL query',
+    )
+
+    const findings = findingsFor(result, 'credential-in-url')
+    expect(findings).toHaveLength(1)
+    expect(findings[0].problem).toContain('api_key')
+    expect(findings[0].problem).not.toContain('token')
+  })
+
+  it('keeps expression-valued URL credentials out of credential-in-url findings', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Expression URL credential',
+        nodes: [
+          {
+            id: 'http-expression-url',
+            name: 'Fetch With URL Credential Expression',
+            type: 'n8n-nodes-base.httpRequest',
+            parameters: {
+              method: 'GET',
+              url: 'https://api.example.com/items?api_key={{ $credentials.apiKey }}&user={{ $json.id }}',
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'expression URL credential',
+    )
+
+    expect(findingsFor(result, 'credential-in-url')).toHaveLength(0)
+  })
+
+  it('flags literal text appended to an expression in the same credential query value', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Mixed credential value',
+        nodes: [
+          {
+            id: 'http-mixed-value',
+            name: 'Fetch With Mixed Credential Value',
+            type: 'n8n-nodes-base.httpRequest',
+            parameters: {
+              method: 'GET',
+              url: 'https://api.example.com/items?api_key={{ $credentials.apiKey }}-literal-secret-123',
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'mixed credential value',
+    )
+
+    expect(findingsFor(result, 'credential-in-url')).toHaveLength(1)
+  })
+
+  it('flags quoted literal fallbacks inside credential query expressions', () => {
+    for (const [expression, expectedFindings] of [
+      ["{{ $json.apiKey || 'literal-secret-123' }}", 1],
+      ['{{ $json.apiKey ?? "literal-secret-456" }}', 1],
+      ['{{ $json.apiKey || `literal-secret-789` }}', 1],
+      ["{{ 'full-literal-secret-123' }}", 1],
+      ["{{ $json.apiKey ? $json.apiKey : 'literal-secret-ternary' }}", 1],
+      ['{{ $json.apiKey ? `literal-secret-branch` : $json.apiKey }}', 1],
+      ["{{ ($json.ok ? $credentials.key : 'literal-secret-parenthesized') }}", 1],
+      ["{{ $json.apiKey || ('literal-secret-parenthesized-fallback') }}", 1],
+      ["{{ String($json.ok ? $credentials.key : 'literal-secret-string-call') }}", 1],
+      ["{{ (((('literal-secret-deeply-parenthesized')))) }}", 1],
+      ['{{ `literal-secret-\\${escaped}` }}', 1],
+      ['{{ `literal-secret-${$json.key}` }}', 1],
+      ['{{ `short-${$json.key}` }}', 0],
+      ['{{ `YOUR_API_KEY-${$json.key}` }}', 0],
+      ["{{ `${'literal-secret-interpolation'}` }}", 1],
+      ["{{ `${$json.key || 'literal-secret-interpolation-fallback'}` }}", 1],
+      ["{{ `${({ nested: true }).nested ? 'literal-secret-nested-brace' : $credentials.key}` }}", 1],
+      ['{{ `${$credentials.key}` }}', 0],
+      ["{{ `${$json.mode === 'production' ? $credentials.prod : $credentials.test}` }}", 0],
+      ["{{ 'literal-secret-left-or' || $credentials.key }}", 1],
+      ["{{ 'literal-secret-left-nullish' ?? $credentials.key }}", 1],
+      ["{{ $json.ok && 'literal-secret-right-and' }}", 1],
+      ["{{ 'literal-secret-left-and' && $credentials.key }}", 1],
+      ['{{ $credentials.apiKey }}', 0],
+      ['{{ $env.API_KEY }}', 0],
+      ['{{ $json.useProd && $credentials.apiKey }}', 0],
+      ["{{ $json.mode === 'production' ? $credentials.prod : $credentials.test }}", 0],
+      ["{{ $json.apiKey || 'literal-secret-123' === $json.expected }}", 0],
+      ["{{ 'production' === $json.mode || $credentials.key }}", 0],
+      ["{{ $json.ok && 'literal-secret-123' === $json.expected }}", 0],
+      ["{{ String($json.ok ? $credentials.key : $credentials.other, 'literal-secret-control') }}", 0],
+    ] as const) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Expression credential fallback',
+          nodes: [
+            {
+              id: 'http-expression-fallback',
+              name: 'Fetch With Expression Credential Fallback',
+              type: 'n8n-nodes-base.httpRequest',
+              parameters: { method: 'GET', url: `https://api.example.com/items?api_key=${expression}` },
+            },
+          ],
+          connections: {},
+        }),
+        'expression credential fallback',
+      )
+
+      expect(findingsFor(result, 'credential-in-url')).toHaveLength(expectedFindings)
+    }
+  })
+
+  it('preserves equals signs in fallback URL query parsing', () => {
+    const result = scanWorkflowInput(
+      JSON.stringify({
+        name: 'Malformed URL with credential',
+        nodes: [
+          {
+            id: 'http-fallback-url',
+            name: 'Fetch With Malformed Credential URL',
+            type: 'n8n-nodes-base.httpRequest',
+            parameters: {
+              method: 'GET',
+              url: 'http://[invalid]?api_key=abc=literal-secret-123',
+            },
+          },
+        ],
+        connections: {},
+      }),
+      'fallback URL query',
+    )
+
+    expect(findingsFor(result, 'credential-in-url')).toHaveLength(1)
+  })
+
+  it('parses expression delimiters and malformed query expressions without hiding later credentials', () => {
+    for (const url of [
+      "https://api.example.com/items?api_key={{ $json.key || 'literal{{secret-123' }}&user={{ $json.id }}",
+      "https://api.example.com/{{ $json.ok ? 'a' : 'b' }}?api_key=literal-secret-after-path-expression",
+      'https://api.example.com/items?user={{ $json.id }}&&api_key=literal-secret-after-double-ampersand',
+      'http://[invalid]?user={{ $json.id&&$json.active&api_key=literal-secret-after-malformed',
+      "http://[invalid]?api_key={{ $json.key || 'literal#secret=123' }}#fragment",
+    ]) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Expression-aware query parsing',
+          nodes: [
+            {
+              id: 'http-expression-aware-query',
+              name: 'Fetch With Expression-aware Query',
+              type: 'n8n-nodes-base.httpRequest',
+              parameters: { method: 'GET', url },
+            },
+          ],
+          connections: {},
+        }),
+        'expression-aware URL query',
+      )
+
+      expect(findingsFor(result, 'credential-in-url')).toHaveLength(1)
+    }
+  })
+
   it('does not flag authenticated webhooks as unauthenticated', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
