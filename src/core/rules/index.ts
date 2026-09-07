@@ -24,6 +24,7 @@ import {
   looksLikeHubSpotContactWrite,
   looksLikeListEndpoint,
   makeFinding,
+  nodeHasUpstreamCategory,
   nodeTextIncludesAny,
   nodesInCategory,
   pathHasCategoryBeforeTarget,
@@ -1210,7 +1211,83 @@ const disabledNodeRule: RuleDefinition = {
   },
 }
 
+// Untrusted input reaching an interpreter. Both rules use the same shape the
+// webhook rules already use: the sink must be reachable from a webhook, and no
+// validation node may sit on the path. The extra condition here is that the sink
+// node's own parameters interpolate upstream data - a hardcoded query or a static
+// prompt carries no injection surface, so it must not be flagged.
+function nodeInterpolatesUpstreamData(node: N8nNode): boolean {
+  const text = JSON.stringify(node.parameters ?? {})
+  return text.includes('$json') || text.includes('$node') || text.includes('{{')
+}
+
+const sqlInjectionRule: RuleDefinition = {
+  id: 'sql-injection-surface',
+  title: 'Untrusted input reaches a database query without validation',
+  plainTitle: 'Incoming data is dropped straight into a database query',
+  plainMeaning:
+    'A database node builds its query from upstream data that arrived through a webhook, and nothing validates that data first. A crafted payload can change what the query does instead of only what it looks up.',
+  fixSteps: [
+    'Add an IF, Switch, or Code validation node between the trigger and the database node.',
+    'Reject or route away payloads whose fields are missing, wrongly typed, or unexpectedly long.',
+    'Use parameterised query options instead of string-interpolating values into SQL.',
+  ],
+  shareSafetyImpact: 'must-fix',
+  category: 'Security',
+  defaultSeverity: 'high',
+  run(context) {
+    return nodesInCategory(context, 'database')
+      .filter(nodeInterpolatesUpstreamData)
+      .filter((node) => nodeHasUpstreamCategory(context, node, 'webhook'))
+      .filter((node) => !nodeHasUpstreamCategory(context, node, 'validation'))
+      .map((node) =>
+        makeFinding({
+          rule: sqlInjectionRule,
+          node,
+          confidence: 'medium',
+          problem: 'A database node interpolates webhook data into its query with no validation step in between.',
+          whyItMatters:
+            'Unvalidated input in a query can read, change, or delete rows the workflow never intended to touch.',
+        }),
+      )
+  },
+}
+
+const llmInjectionRule: RuleDefinition = {
+  id: 'llm-injection-surface',
+  title: 'Untrusted input reaches an AI prompt without validation',
+  plainTitle: 'Incoming data is pasted straight into an AI prompt',
+  plainMeaning:
+    'An AI node builds its prompt from upstream data that arrived through a webhook, and nothing validates that data first. Text from outside can carry instructions of its own, and the model may follow them instead of yours.',
+  fixSteps: [
+    'Add a validation node between the trigger and the AI node.',
+    'Keep untrusted text in a clearly delimited field and tell the model to treat it as data, not instructions.',
+    'Validate the model output too when it drives a later write or action step.',
+  ],
+  shareSafetyImpact: 'must-fix',
+  category: 'Security',
+  defaultSeverity: 'medium',
+  run(context) {
+    return nodesInCategory(context, 'ai')
+      .filter(nodeInterpolatesUpstreamData)
+      .filter((node) => nodeHasUpstreamCategory(context, node, 'webhook'))
+      .filter((node) => !nodeHasUpstreamCategory(context, node, 'validation'))
+      .map((node) =>
+        makeFinding({
+          rule: llmInjectionRule,
+          node,
+          confidence: 'medium',
+          problem: 'An AI node interpolates webhook data into its prompt with no validation step in between.',
+          whyItMatters:
+            'Attacker-controlled text in a prompt can redirect the model, leaking context or triggering the wrong downstream action.',
+        }),
+      )
+  },
+}
+
 export const allRules: RuleDefinition[] = [
+  sqlInjectionRule,
+  llmInjectionRule,
   hardcodedSecretRule,
   embeddedSecretRule,
   credentialInUrlRule,

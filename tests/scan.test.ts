@@ -536,6 +536,35 @@ describe('scanWorkflowInput', () => {
     }
   })
 
+  it('keeps a literal credential prefix before an unterminated expression', () => {
+    for (const [value, expectedFindings] of [
+      ['literal-secret-123{{ $json.key', 1],
+      ['{{ $credentials.apiKey', 0],
+      ['{{ $env.API_KEY', 0],
+    ] as const) {
+      const result = scanWorkflowInput(
+        JSON.stringify({
+          name: 'Unterminated credential expression',
+          nodes: [
+            {
+              id: 'http-unterminated-expression',
+              name: 'Fetch With Unterminated Expression',
+              type: 'n8n-nodes-base.httpRequest',
+              parameters: {
+                method: 'GET',
+                url: `https://api.example.com/items?api_key=${value}`,
+              },
+            },
+          ],
+          connections: {},
+        }),
+        'unterminated credential expression',
+      )
+
+      expect(findingsFor(result, 'credential-in-url')).toHaveLength(expectedFindings)
+    }
+  })
+
   it('does not flag authenticated webhooks as unauthenticated', () => {
     const result = scanWorkflowInput(
       JSON.stringify({
@@ -2961,4 +2990,28 @@ describe('scanWorkflowInput', () => {
     expect(postgres).not.toContain('validation')
     expect(codeGuard).toContain('validation')
   })
+  it('flags webhook data interpolated into a SQL query with no validation between', () => {
+    const result = scanWorkflowInput(fixture('risky-webhook-sql-injection.json'), 'risk')
+
+    expect(ids(result).has('sql-injection-surface')).toBe(true)
+  })
+
+  it('flags webhook data interpolated into an AI prompt with no validation between', () => {
+    const result = scanWorkflowInput(fixture('risky-webhook-llm-injection.json'), 'risk')
+
+    expect(ids(result).has('llm-injection-surface')).toBe(true)
+  })
+
+  it('does not flag a SQL query when a validation node sits between the webhook and the database', () => {
+    const result = scanWorkflowInput(fixture('clean-validated-sql-query.json'), 'risk')
+
+    expect(ids(result).has('sql-injection-surface')).toBe(false)
+  })
+
+  it('does not flag an AI node whose prompt is static rather than interpolated', () => {
+    const result = scanWorkflowInput(fixture('clean-static-llm-prompt.json'), 'risk')
+
+    expect(ids(result).has('llm-injection-surface')).toBe(false)
+  })
+
 })

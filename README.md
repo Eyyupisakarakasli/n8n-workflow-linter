@@ -31,6 +31,7 @@ Do not send raw workflow JSON as feedback unless you have removed secrets, custo
 - n8n parser, graph helpers, and deterministic risk rules
 - Active scan excludes disabled nodes and non-operational nodes such as Sticky Note / NoOp
 - Security rules for known secret formats, credential-shaped values, credential IDs, URL query credentials, and pinned data
+- Injection rules for webhook data reaching a SQL query or an AI prompt with no validation step in between
 - Reliability rules for webhook validation/auth, HubSpot email requirements, grouped HTTP/app retry and error handling, workflow error workflow settings, frequent schedules, duplicate write paths, and disconnected action nodes
 - Verdict, severity grouped report, parser warnings, markdown report export, and fix checklist copy
 

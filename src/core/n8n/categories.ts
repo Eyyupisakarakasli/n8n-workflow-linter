@@ -7,6 +7,7 @@ export type NodeCategory =
   | 'hubspot'
   | 'crm'
   | 'database'
+  | 'ai'
   | 'notification'
   | 'logging'
   | 'transform'
@@ -47,6 +48,24 @@ const readOperations = new Set([
   'search',
   'searchbydomain',
 ])
+const aiNodeSuffixes = new Set(
+  [
+    'openAi',
+    'anthropic',
+    'agent',
+    'aiAgent',
+    'googleGemini',
+    'mistralCloud',
+    'cohere',
+    'groq',
+    'ollama',
+    'huggingFaceInference',
+    'informationExtractor',
+    'textClassifier',
+    'sentimentAnalysis',
+  ].map((suffix) => suffix.toLowerCase()),
+)
+
 const nonOperationalSuffixes = new Set(['stickyNote', 'noOp', 'noop'])
 
 export function getNodeTypeSuffix(node: N8nNode): string {
@@ -116,6 +135,18 @@ export function categorizeNode(node: N8nNode): NodeCategory[] {
   }
   if (['slack', 'emailSend', 'gmail', 'telegram'].some((candidate) => suffix === candidate.toLowerCase())) {
     categories.add('notification')
+  }
+  // AI nodes are matched on the node type only, never on wording. n8n's LangChain
+  // pack names every model node `lmChat*` and every orchestration node `chain*` or
+  // `agent`, so the type suffix is an exact signal; matching on parameter text would
+  // let any node mentioning "prompt" claim the category.
+  if (
+    aiNodeSuffixes.has(suffix) ||
+    suffix.startsWith('lmchat') ||
+    suffix.startsWith('chain') ||
+    suffix.startsWith('embeddings')
+  ) {
+    categories.add('ai')
   }
   if (suffix.includes('log') || text.includes('logging') || text.includes('audit')) categories.add('logging')
   if (

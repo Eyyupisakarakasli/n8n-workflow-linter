@@ -1,0 +1,58 @@
+{
+  "name": "Risky - Webhook To LLM Without Validation",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Receive Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "event",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "ai",
+      "name": "Summarize Ticket",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "message",
+        "messages": {
+          "values": [
+            {
+              "content": "=Summarize this customer message: {{ $json.body }}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Event": {
+      "main": [
+        [
+          {
+            "node": "Summarize Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "errorWorkflow": "error-handler"
+  }
+}
