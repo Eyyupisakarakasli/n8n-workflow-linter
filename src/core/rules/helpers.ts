@@ -861,8 +861,16 @@ function credentialLiteralCandidates(value: string): string[] {
   }
   outsideExpressions += value.slice(cursor)
 
-  const outside = outsideExpressions.trim()
-  if (outside && !outside.includes('{{')) candidates.push(outside)
+  // Preserve a literal prefix before an unterminated expression instead of
+  // dropping the whole value. Do not inspect the malformed expression body:
+  // `$credentials.apiKey` must not become a false hardcoded-secret finding.
+  const unmatchedExpressionStart = outsideExpressions.indexOf('{{')
+  const outside = (
+    unmatchedExpressionStart >= 0
+      ? outsideExpressions.slice(0, unmatchedExpressionStart)
+      : outsideExpressions
+  ).trim()
+  if (outside) candidates.push(outside)
 
   return candidates
 }

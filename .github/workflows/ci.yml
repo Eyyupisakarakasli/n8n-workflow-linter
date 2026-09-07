@@ -6,9 +6,13 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Test
-        run: npm run test
+        run: npm test
 
       - name: Lint
         run: npm run lint
@@ -34,5 +38,5 @@ jobs:
       - name: Privacy scan
         run: npm run test:privacy
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=moderate
+      - name: Audit all dependencies
+        run: npm audit --audit-level=high

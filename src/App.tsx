@@ -28,14 +28,15 @@ const EARLY_ACCESS_FORM_URL = 'https://tally.so/r/aQ15Pq'
 
 const maxFileBytes = 2 * 1024 * 1024
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
+const initialDemo = demoWorkflows[0]
 
 type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
 type CopyState = 'idle' | 'copied' | 'failed'
 
 function App() {
-  const [rawInput, setRawInput] = useState('')
-  const [sourceLabel, setSourceLabel] = useState('Pasted workflow')
-  const [selectedDemoId, setSelectedDemoId] = useState(demoWorkflows[0]?.id ?? '')
+  const [rawInput, setRawInput] = useState(initialDemo?.json ?? '')
+  const [sourceLabel, setSourceLabel] = useState(initialDemo?.name ?? 'Pasted workflow')
+  const [selectedDemoId, setSelectedDemoId] = useState(initialDemo?.id ?? '')
   const [status, setStatus] = useState<ScanStatus>('idle')
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [scanError, setScanError] = useState<ScanError | null>(null)
@@ -46,23 +47,15 @@ function App() {
   const [checklistCopyState, setChecklistCopyState] = useState<CopyState>('idle')
   const [isDragging, setIsDragging] = useState(false)
   const workerRef = useRef<Worker | null>(null)
-  const autoScannedDemoRef = useRef(false)
 
   useEffect(() => {
-    const demo = demoWorkflows.find((item) => item.id === selectedDemoId)
-    if (!rawInput && demo) {
-      setRawInput(demo.json)
-      setSourceLabel(demo.name)
-      if (!autoScannedDemoRef.current) {
-        autoScannedDemoRef.current = true
-        runScan(demo.json, demo.name)
-      }
+    if (initialDemo) {
+      runScan(initialDemo.json, initialDemo.name)
     }
-  }, [rawInput, selectedDemoId])
 
-  useEffect(() => {
     return () => {
       workerRef.current?.terminate()
+      workerRef.current = null
     }
   }, [])
 
@@ -184,11 +177,20 @@ function App() {
       return
     }
 
-    const text = await file.text()
-    setRawInput(text)
-    setSourceLabel(file.name)
-    setSelectedDemoId('')
-    runScan(text, file.name)
+    try {
+      const text = await file.text()
+      setRawInput(text)
+      setSourceLabel(file.name)
+      setSelectedDemoId('')
+      runScan(text, file.name)
+    } catch (error) {
+      setStatus('error')
+      setScanError({
+        code: 'invalid_json',
+        title: 'Workflow file could not be read',
+        detail: error instanceof Error ? error.message : 'The selected JSON file could not be read.',
+      })
+    }
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -258,7 +260,9 @@ function App() {
     document.body.append(link)
     link.click()
     link.remove()
-    URL.revokeObjectURL(url)
+    // Firefox and Safari can cancel a download when its object URL is revoked
+    // in the same task as the click.
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
   return (
@@ -528,7 +532,11 @@ function ReportView({
 
       <div className="filters">
         <Filter size={17} aria-hidden="true" />
-        <select value={severityFilter} onChange={(event) => onSeverityChange(event.target.value as 'all' | Severity)}>
+        <select
+          aria-label="Filter findings by severity"
+          value={severityFilter}
+          onChange={(event) => onSeverityChange(event.target.value as 'all' | Severity)}
+        >
           <option value="all">All severities</option>
           {severityOrder.map((severity) => (
             <option key={severity} value={severity}>
@@ -536,7 +544,11 @@ function ReportView({
             </option>
           ))}
         </select>
-        <select value={categoryFilter} onChange={(event) => onCategoryChange(event.target.value)}>
+        <select
+          aria-label="Filter findings by category"
+          value={categoryFilter}
+          onChange={(event) => onCategoryChange(event.target.value)}
+        >
           <option value="all">All categories</option>
           {categoryOptions.map((category) => (
             <option key={category} value={category}>
