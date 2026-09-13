@@ -98,3 +98,7 @@ Useful feedback includes:
 - `docs/launch-checklist.md`: founder checklist for the first public beta pass
 - `docs/beta-launch-copy.md`: short post, community post, direct message, and feedback request copy
 - `docs/beta-test-plan.md`: manual real-workflow test plan and result log template
+
+## License
+
+[MIT](LICENSE) © Eyyüp İsa Karakaşlı
